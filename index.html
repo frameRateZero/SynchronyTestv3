@@ -103,6 +103,14 @@
       const [results, setResults] = useState([]);
       const [trials, setTrials] = useState([]);
       const [animationOffset, setAnimationOffset] = useState(0);
+      
+      // RGB color inputs
+      const [yellowR, setYellowR] = useState(255);
+      const [yellowG, setYellowG] = useState(215);
+      const [yellowB, setYellowB] = useState(0);
+      const [blueR, setBlueR] = useState(85);
+      const [blueG, setBlueG] = useState(85);
+      const [blueB, setBlueB] = useState(255);
 
       // DOM Refs for direct manipulation (Bypasses React render lag)
       const leftEmojiRef = useRef(null);
@@ -127,19 +135,6 @@
       const flashEndTimeRef = useRef(0);
 
       // Frame-perfect offsets for 120Hz displays  
-      // At 120Hz, each frame is 8.333ms
-      // 
-      // Using EXACT frame boundary values because:
-      // - The condition is `elapsed >= offsetMs`
-      // - At frame N, elapsed will be exactly N * 8.333ms
-      // - So offsetMs = 8.333 will trigger when elapsed reaches 8.333ms (frame 1)
-      //
-      // Example: offset = 8.333ms
-      //   Frame 0 (elapsed=0ms):     0 < 8.333 → block2 hidden
-      //   Frame 1 (elapsed=8.333ms): 8.333 >= 8.333 → block2 shows ✓
-      //
-      // JavaScript timing jitter is handled by requestAnimationFrame
-      // which always fires at exact frame boundaries (0, 8.333, 16.667, ...)
       const FRAME_MS = 1000 / 120; // 8.333... ms
       
       const offsets = [
@@ -187,86 +182,110 @@
         // Always run, not just on intro
         rafId = requestAnimationFrame(checkFps);
         
-        return () => {
-          if (rafId) cancelAnimationFrame(rafId);
-        };
-      }, []); // Remove phase dependency to run continuously
+        return () => cancelAnimationFrame(rafId);
+      }, []);
 
-      // Stress Test Animation - keeps frame rate elevated
+      // Continuous animation loop to keep GPU active at 120Hz
       useEffect(() => {
         let rafId;
-        let lastTime = performance.now();
-        
-        const animate = (currentTime) => {
-          const delta = currentTime - lastTime;
-          lastTime = currentTime;
-          
-          // Much faster animation to stress the frame rate
-          setAnimationOffset(prev => (prev + delta * 0.2) % 360);
-          
+        const animate = () => {
+          setAnimationOffset(prev => (prev + 8) % 360);
           rafId = requestAnimationFrame(animate);
         };
-        
         rafId = requestAnimationFrame(animate);
-        
-        return () => {
-          if (rafId) cancelAnimationFrame(rafId);
-        };
+        return () => cancelAnimationFrame(rafId);
       }, []);
+
+      const playHaptic = () => {
+        if (navigator.vibrate) {
+          navigator.vibrate(10);
+        }
+        
+        if (audioContextRef.current && audioContextRef.current.state === 'running') {
+          try {
+            const oscillator = audioContextRef.current.createOscillator();
+            const gainNode = audioContextRef.current.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContextRef.current.destination);
+            
+            oscillator.frequency.value = 200;
+            gainNode.gain.setValueAtTime(0.1, audioContextRef.current.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContextRef.current.currentTime + 0.05);
+            
+            oscillator.start();
+            oscillator.stop(audioContextRef.current.currentTime + 0.05);
+          } catch (e) {
+            console.log('Audio feedback failed:', e);
+          }
+        }
+      };
 
       const startTest = () => {
         document.body.classList.add('no-scroll');
-        setPhase('practice');
+        setPhase('waiting');
         setCurrentTrial(-1);
-        // Give the DOM a moment to mount before starting the practice trial
-        setTimeout(() => startTrial(-1), 100);
+        setResults([]);
+        runTrial(-1);
       };
 
-      const startTrial = (trialNum) => {
+      const runTrial = (trialIndex) => {
+        const offset = trialIndex === -1 ? 0 : trials[trialIndex];
         hasRespondedRef.current = false;
-        const offset = trialNum === -1 ? 0 : trials[trialNum];
-        setPhase(trialNum === -1 ? 'practice' : 'fixation');
+        
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+        }
 
-        // 1. Fixation Period
-        timerRef.current = setTimeout(() => {
-          runStimulus(offset);
-        }, 1500);
+        setPhase('countdown');
+
+        setTimeout(() => {
+          setPhase('flash');
+          executeFlash(offset);
+        }, 500);
       };
 
-      const runStimulus = (offsetMs) => {
-        setPhase('stimulus');
+      const executeFlash = (offsetMs) => {
         const startTime = performance.now();
-        const duration = 200; // Visible duration in ms
+        const FLASH_DURATION = 70;
+        const absOffset = Math.abs(offsetMs);
 
-        const animate = (currentTime) => {
-          const elapsed = currentTime - startTime;
+        // Co-terminating design: offset is ONLY on the leading edge.
+        //   First block:  ON  at t = 0,         OFF at t = absOffset + FLASH_DURATION
+        //   Second block: ON  at t = absOffset,  OFF at t = absOffset + FLASH_DURATION
+        // Both disappear on the same frame.  The first block is visible for
+        // (absOffset + FLASH_DURATION) ms, the second for FLASH_DURATION ms.
+        const endTime = absOffset + FLASH_DURATION;
 
-          if (offsetMs >= 0) {
-            // Left first (or simultaneous)
-            if (leftEmojiRef.current) {
-              leftEmojiRef.current.style.opacity = (elapsed >= 0 && elapsed <= duration) ? '1' : '0';
-            }
-            if (rightEmojiRef.current) {
-              rightEmojiRef.current.style.opacity = (elapsed >= offsetMs && elapsed <= offsetMs + duration) ? '1' : '0';
-            }
-          } else {
-            // Right first
-            const absOffset = Math.abs(offsetMs);
-            if (rightEmojiRef.current) {
-              rightEmojiRef.current.style.opacity = (elapsed >= 0 && elapsed <= duration) ? '1' : '0';
-            }
-            if (leftEmojiRef.current) {
-              leftEmojiRef.current.style.opacity = (elapsed >= absOffset && elapsed <= absOffset + duration) ? '1' : '0';
-            }
+        // Resolve which ref is "first" and which is "second"
+        const firstRef  = offsetMs >= 0 ? leftEmojiRef  : rightEmojiRef;
+        const secondRef = offsetMs >= 0 ? rightEmojiRef : leftEmojiRef;
+
+        const animate = (now) => {
+          const elapsed = now - startTime;
+
+          // --- First block: visible from t=0 to t=endTime ---
+          if (firstRef.current) {
+            firstRef.current.style.opacity = (elapsed < endTime) ? '1' : '0';
           }
 
-          // Check if the sequence is finished (max offset + duration)
-          if (elapsed < Math.abs(offsetMs) + duration + 16) {
-            requestAnimationFrame(animate);
-          } else {
+          // --- Second block: visible from t=absOffset to t=endTime ---
+          if (secondRef.current) {
+            secondRef.current.style.opacity = (elapsed >= absOffset && elapsed < endTime) ? '1' : '0';
+          }
+
+          // --- done: both off, hand off to response phase ---
+          if (elapsed >= endTime) {
+            if (leftEmojiRef.current)  leftEmojiRef.current.style.opacity  = '0';
+            if (rightEmojiRef.current) rightEmojiRef.current.style.opacity = '0';
+
             flashEndTimeRef.current = performance.now();
             setPhase('response');
+            playHaptic();
+            return;
           }
+
+          requestAnimationFrame(animate);
         };
 
         requestAnimationFrame(animate);
@@ -274,103 +293,154 @@
 
       const handleResponse = (response) => {
         if (hasRespondedRef.current || phase !== 'response') return;
+        
         hasRespondedRef.current = true;
-
-        // Haptic feedback - works on Android
-        if (navigator.vibrate) {
-          navigator.vibrate(10);
-        }
-
-        // Audio feedback - works on iOS and Android
-        try {
-          const audioContext = audioContextRef.current || new (window.AudioContext || window.webkitAudioContext)();
-          if (!audioContextRef.current) audioContextRef.current = audioContext;
-          
-          const oscillator = audioContext.createOscillator();
-          const gainNode = audioContext.createGain();
-          
-          oscillator.connect(gainNode);
-          gainNode.connect(audioContext.destination);
-          
-          // Short, pleasant click sound
-          gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-          gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.03);
-          
-          oscillator.frequency.value = 800; // High pitch for crisp click
-          oscillator.type = 'sine';
-          
-          oscillator.start(audioContext.currentTime);
-          oscillator.stop(audioContext.currentTime + 0.03);
-        } catch (e) {
-          // Silently fail if audio not supported
-        }
-
-        const responseTime = performance.now();
-        const reactionTimeMs = Math.round(responseTime - flashEndTimeRef.current);
-
+        playHaptic();
+        
+        const reactionTime = Math.round(performance.now() - flashEndTimeRef.current);
         const offset = currentTrial === -1 ? 0 : trials[currentTrial];
-        if (currentTrial >= 0) {
-          setResults(prev => [...prev, { 
-            trial: currentTrial + 1, 
-            offset, 
-            response,
-            reactionTime: reactionTimeMs,
-            fps: fps, // Record FPS at time of response
-            timestamp: new Date().toISOString()
-          }]);
-        }
+        
+        const result = {
+          trial: currentTrial === -1 ? 'Practice' : currentTrial + 1,
+          offset: offset.toFixed(3),
+          response: response,
+          reactionTime: reactionTime,
+          fps: fps,
+          timestamp: new Date().toISOString()
+        };
 
-        if (currentTrial >= trials.length - 1) {
-          document.body.classList.remove('no-scroll');
-          setPhase('complete');
+        if (currentTrial === -1) {
+          setTimeout(() => runTrial(0), 500);
+          setCurrentTrial(0);
         } else {
-          setPhase('waiting');
-          timerRef.current = setTimeout(() => {
-            const next = currentTrial + 1;
-            setCurrentTrial(next);
-            startTrial(next);
-          }, 1500);
+          setResults(prev => [...prev, result]);
+          
+          if (currentTrial < trials.length - 1) {
+            setTimeout(() => runTrial(currentTrial + 1), 500);
+            setCurrentTrial(prev => prev + 1);
+          } else {
+            setPhase('complete');
+            document.body.classList.remove('no-scroll');
+          }
         }
       };
 
-      // Intro screen
+      // Intro screen with RGB inputs
       if (phase === 'intro') {
+        const yellowColor = `rgb(${yellowR}, ${yellowG}, ${yellowB})`;
+        const blueColor = `rgb(${blueR}, ${blueG}, ${blueB})`;
+        
         return (
-          <div className="min-h-screen bg-gray-900 text-white p-6 py-12">
-            <div className="max-w-md mx-auto text-center">
-              <h1 className="text-3xl font-bold mb-6">Synchrony Perception Test</h1>
+          <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white p-6">
+            <div className="max-w-2xl w-full">
+              <h1 className="text-4xl font-bold mb-4 text-center">Synchrony Perception Test</h1>
               
-              {/* FPS Monitor Badge with Stress Test Animation */}
-              <div className="mb-6">
-                <div className={`inline-block px-4 py-2 rounded-full text-sm font-mono ${is120Hz ? 'bg-green-900 text-green-400' : 'bg-yellow-900 text-yellow-400'}`}>
-                  {fps}Hz Detected
-                </div>
+              <div className={`mb-6 p-4 rounded-lg text-center ${is120Hz ? 'bg-green-900/30 border-2 border-green-500' : 'bg-red-900/30 border-2 border-red-500'}`}>
+                <p className="text-lg font-bold mb-1">Display: {fps}Hz</p>
+                {is120Hz ? (
+                  <p className="text-green-400">✓ High refresh rate detected</p>
+                ) : (
+                  <p className="text-red-400">⚠ 120Hz display recommended for accurate results</p>
+                )}
+              </div>
+
+              {/* Color Configuration */}
+              <div className="bg-gray-800/50 p-6 rounded-lg mb-6 space-y-6">
+                <h2 className="text-xl font-bold mb-4">Color Settings</h2>
                 
-                {/* Spinning stress test indicators */}
-                <div className="flex justify-center gap-2 mt-3">
-                  {[0, 1, 2, 3, 4].map((i) => (
-                    <div
-                      key={i}
-                      className="w-3 h-3 rounded-full bg-blue-500"
-                      style={{
-                        transform: `translateY(${Math.sin((animationOffset + i * 72) * Math.PI / 180) * 12}px) translateZ(0)`,
-                        opacity: 0.3 + (Math.sin((animationOffset + i * 72) * Math.PI / 180) * 0.5 + 0.5) * 0.7,
-                        willChange: 'transform, opacity'
-                      }}
-                    />
-                  ))}
+                {/* Yellow Background RGB */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="font-semibold">Yellow Background</label>
+                    <div className="w-16 h-8 rounded border-2 border-gray-600" style={{ backgroundColor: yellowColor }}></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-sm text-gray-400">R</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="255"
+                        value={yellowR}
+                        onChange={(e) => setYellowR(Math.max(0, Math.min(255, parseInt(e.target.value) || 0)))}
+                        className="w-full bg-gray-700 text-white px-3 py-2 rounded"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-gray-400">G</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="255"
+                        value={yellowG}
+                        onChange={(e) => setYellowG(Math.max(0, Math.min(255, parseInt(e.target.value) || 0)))}
+                        className="w-full bg-gray-700 text-white px-3 py-2 rounded"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-gray-400">B</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="255"
+                        value={yellowB}
+                        onChange={(e) => setYellowB(Math.max(0, Math.min(255, parseInt(e.target.value) || 0)))}
+                        className="w-full bg-gray-700 text-white px-3 py-2 rounded"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Blue Pulse RGB */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="font-semibold">Blue Pulse</label>
+                    <div className="w-16 h-8 rounded border-2 border-gray-600" style={{ backgroundColor: blueColor }}></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-sm text-gray-400">R</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="255"
+                        value={blueR}
+                        onChange={(e) => setBlueR(Math.max(0, Math.min(255, parseInt(e.target.value) || 0)))}
+                        className="w-full bg-gray-700 text-white px-3 py-2 rounded"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-gray-400">G</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="255"
+                        value={blueG}
+                        onChange={(e) => setBlueG(Math.max(0, Math.min(255, parseInt(e.target.value) || 0)))}
+                        className="w-full bg-gray-700 text-white px-3 py-2 rounded"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-gray-400">B</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="255"
+                        value={blueB}
+                        onChange={(e) => setBlueB(Math.max(0, Math.min(255, parseInt(e.target.value) || 0)))}
+                        className="w-full bg-gray-700 text-white px-3 py-2 rounded"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
               
-              {!is120Hz && fps > 0 && fps < 100 && (
-                <div className="bg-yellow-600/20 border border-yellow-600 text-yellow-200 p-3 rounded-lg mb-6 text-sm">
-                  <strong>⚠️ Limited to {fps}Hz</strong><br/>
-                  Turn off Low Power Mode and close other apps for best results.
-                </div>
-              )}
+              <div className="bg-gray-800/50 p-4 rounded-lg mb-4">
+                <p className="font-bold mb-2">Your task:</p>
+                <p className="mb-3">Two blue squares will flash on a yellow background. Report whether they appeared at the same time or if one appeared first.</p>
+              </div>
               
-              <div className="bg-gray-800 p-6 rounded-lg mb-6 text-left space-y-3">
-                <p>Two blue squares will flash briefly.</p>
+              <div className="bg-gray-800/50 p-4 rounded-lg mb-4 space-y-1">
                 <p><span className="text-blue-400 font-bold">SAME</span> = They appeared at the same time</p>
                 <p><span className="text-yellow-400 font-bold">LEFT</span> = Left appeared first</p>
                 <p><span className="text-green-400 font-bold">RIGHT</span> = Right appeared first</p>
@@ -397,14 +467,12 @@
 
       // Results screen
       if (phase === 'complete') {
-        // Create CSV format (just the trial details, no summary table)
         const csvDetails = ['Trial,Offset_ms,Response,ReactionTime_ms,FPS,Timestamp'];
         results.forEach(r => {
           csvDetails.push(`${r.trial},${r.offset},${r.response},${r.reactionTime},${r.fps},${r.timestamp}`);
         });
         const csvText = csvDetails.join('\n');
 
-        // Calculate summary data for histogram
         const uniqueOffsets = [0, 8.333, 16.667, 25.0, 33.333, 41.667, 50.0];
         const summaryData = uniqueOffsets.map(absOffset => {
           const offsetResults = results.filter(r => Math.abs(Math.abs(r.offset) - absOffset) < 0.01);
@@ -423,7 +491,6 @@
             <div className="max-w-4xl w-full">
               <h1 className="text-3xl font-bold mb-8 text-center">Test Complete!</h1>
               
-              {/* Visual Summary Histogram */}
               <div className="bg-gray-800 rounded-lg p-6 mb-6">
                 <h2 className="text-xl font-bold mb-4">Synchrony Perception</h2>
                 <p className="text-sm text-gray-400 mb-4">Percentage of trials judged as "SAME" vs absolute offset (ms)</p>
@@ -448,7 +515,6 @@
                 </div>
               </div>
               
-              {/* CSV Download */}
               <div className="bg-gray-800 rounded-lg p-6 mb-6">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-xl font-bold">Trial Data (CSV)</h2>
@@ -481,17 +547,19 @@
       }
 
       // Trial display
+      const yellowColor = `rgb(${yellowR}, ${yellowG}, ${yellowB})`;
+      const blueColor = `rgb(${blueR}, ${blueG}, ${blueB})`;
+      const borderColor = `rgb(${Math.max(0, yellowR - 40)}, ${Math.max(0, yellowG - 40)}, ${Math.max(0, yellowB - 40)})`;
+      
       return (
-        <div className="flex flex-col items-center justify-start pt-20 min-h-screen text-white select-none touch-none" style={{ willChange: 'transform', backgroundColor: '#FFD700' }}>
+        <div className="flex flex-col items-center justify-start pt-20 min-h-screen text-white select-none touch-none" style={{ willChange: 'transform', backgroundColor: yellowColor }}>
           
-          {/* Persistent FPS Monitor - Top Right */}
           <div className="fixed top-4 right-4 z-50">
             <div className={`px-3 py-1 rounded-full text-xs font-mono ${is120Hz ? 'bg-green-900/80 text-green-400' : 'bg-red-900/80 text-red-400'}`}>
               {fps}Hz
             </div>
           </div>
 
-          {/* Background animation to maintain 120Hz - invisible but keeps GPU active */}
           <div className="fixed bottom-2 left-1/2 transform -translate-x-1/2 flex gap-1 opacity-20 pointer-events-none">
             {[0, 1, 2].map((i) => (
               <div
@@ -514,15 +582,14 @@
           </div>
 
           <div className="flex gap-8 items-center justify-center mb-12" style={{ height: '200px' }}>
-            <div className="w-32 h-32 flex items-center justify-center border-4 rounded-lg" style={{ borderColor: '#DAA520', backgroundColor: '#434200', willChange: 'transform' }}>
-              <div ref={leftEmojiRef} className="w-20 h-20 rounded opacity-0 transition-none" style={{ backgroundColor: '#0000B4', filter: 'blur(6px)', willChange: 'opacity', transform: 'translateZ(0)' }}></div>
+            <div className="w-32 h-32 flex items-center justify-center border-4 rounded-lg" style={{ borderColor: borderColor, backgroundColor: yellowColor, willChange: 'transform' }}>
+              <div ref={leftEmojiRef} className="w-20 h-20 rounded opacity-0 transition-none" style={{ backgroundColor: blueColor, filter: 'blur(2px)', willChange: 'opacity', transform: 'translateZ(0)' }}></div>
             </div>
-            <div className="w-32 h-32 flex items-center justify-center border-4 rounded-lg" style={{ borderColor: '#DAA520', backgroundColor: '#434200', willChange: 'transform' }}>
-              <div ref={rightEmojiRef} className="w-20 h-20 rounded opacity-0 transition-none" style={{ backgroundColor: '#0000B4', filter: 'blur(6px)', willChange: 'opacity', transform: 'translateZ(0)' }}></div>
+            <div className="w-32 h-32 flex items-center justify-center border-4 rounded-lg" style={{ borderColor: borderColor, backgroundColor: yellowColor, willChange: 'transform' }}>
+              <div ref={rightEmojiRef} className="w-20 h-20 rounded opacity-0 transition-none" style={{ backgroundColor: blueColor, filter: 'blur(2px)', willChange: 'opacity', transform: 'translateZ(0)' }}></div>
             </div>
           </div>
 
-          {/* Fixed height status area to prevent layout shift */}
           <div className="h-20 mb-4 flex items-center justify-center">
             <div className="flex flex-row gap-3 px-4">
               <button 
@@ -549,7 +616,6 @@
             </div>
           </div>
 
-          {/* Empty fixed-height area - no distracting text */}
           <div className="h-8"></div>
         </div>
       );
