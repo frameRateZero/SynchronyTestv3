@@ -236,7 +236,7 @@
       const runStimulus = (offsetMs) => {
         setPhase('stimulus');
         const startTime = performance.now();
-        const duration = 100; // Visible duration in ms
+        const duration = 200; // Visible duration in ms
 
         const animate = (currentTime) => {
           const elapsed = currentTime - startTime;
@@ -514,11 +514,11 @@
           </div>
 
           <div className="flex gap-8 items-center justify-center mb-12" style={{ height: '200px' }}>
-            <div className="w-32 h-32 flex items-center justify-center border-4 rounded-lg" style={{ borderColor: '#DAA520', backgroundColor: '#FFD700', willChange: 'transform' }}>
-              <div ref={leftEmojiRef} className="w-20 h-20 rounded opacity-0 transition-none" style={{ backgroundColor: '#5555FF', filter: 'blur(2px)', willChange: 'opacity', transform: 'translateZ(0)' }}></div>
+            <div className="w-32 h-32 flex items-center justify-center border-4 rounded-lg" style={{ borderColor: '#DAA520', backgroundColor: '#434200', willChange: 'transform' }}>
+              <div ref={leftEmojiRef} className="w-20 h-20 rounded opacity-0 transition-none" style={{ backgroundColor: '#0000B4', filter: 'blur(6px)', willChange: 'opacity', transform: 'translateZ(0)' }}></div>
             </div>
-            <div className="w-32 h-32 flex items-center justify-center border-4 rounded-lg" style={{ borderColor: '#DAA520', backgroundColor: '#FFD700', willChange: 'transform' }}>
-              <div ref={rightEmojiRef} className="w-20 h-20 rounded opacity-0 transition-none" style={{ backgroundColor: '#5555FF', filter: 'blur(2px)', willChange: 'opacity', transform: 'translateZ(0)' }}></div>
+            <div className="w-32 h-32 flex items-center justify-center border-4 rounded-lg" style={{ borderColor: '#DAA520', backgroundColor: '#434200', willChange: 'transform' }}>
+              <div ref={rightEmojiRef} className="w-20 h-20 rounded opacity-0 transition-none" style={{ backgroundColor: '#0000B4', filter: 'blur(6px)', willChange: 'opacity', transform: 'translateZ(0)' }}></div>
             </div>
           </div>
 
