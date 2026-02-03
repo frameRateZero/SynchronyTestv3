@@ -269,7 +269,7 @@ const { useState, useEffect, useRef } = React;
       if (phase === 'intro') {
         const yellowColor = `rgb(${yellowR}, ${yellowG}, ${yellowB})`;
         return (
-          <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white p-6">
+          <div className="flex items-center justify-center min-h-[100dvh] bg-gray-900 text-white p-6">
             <div className="max-w-2xl w-full text-center">
               <h1 className="text-3xl font-bold mb-6">Synchrony Test</h1>
               <div className="bg-gray-800 p-6 rounded-2xl mb-6 space-y-4">
@@ -302,7 +302,7 @@ const { useState, useEffect, useRef } = React;
         const uniqueOffsets = [0, 8.333, 16.667, 25.0, 33.333, 41.667, 50.0, 66.667, 83.333, 100.0];
         
         return (
-          <div className="min-h-screen bg-gray-900 text-white p-6 flex flex-col items-center">
+          <div className="min-h-[100dvh] bg-gray-900 text-white p-6 flex flex-col items-center overflow-auto">
             <h1 className="text-2xl font-bold mb-6">Results</h1>
             <div className="w-full max-w-md bg-gray-800 p-4 rounded-xl mb-6 space-y-3">
               {uniqueOffsets.map(val => {
@@ -335,18 +335,18 @@ const { useState, useEffect, useRef } = React;
       }
 
       const yellowColor = `rgb(${yellowR}, ${yellowG}, ${yellowB})`;
-      const blobSize = "min(44vw, 300px)"; 
-      const innerSize = "min(40vw, 280px)";
+      const blobSize = "min(44vw, 250px)"; 
+      const innerSize = "min(40vw, 230px)";
 
       return (
-        <div className="relative min-h-screen touch-none select-none overflow-hidden" style={{ backgroundColor: yellowColor }}>
-          {/* Header */}
-          <div className="absolute top-12 left-0 right-0 text-center font-bold text-black/30 tracking-widest text-sm uppercase">
+        <div className="flex flex-col justify-between items-center h-[100dvh] w-full touch-none select-none p-4" style={{ backgroundColor: yellowColor }}>
+          {/* Top Label */}
+          <div className="pt-8 font-bold text-black/30 tracking-widest text-sm uppercase">
              {currentTrial === -1 ? "Practice" : `Trial ${currentTrial+1}/${trials.length}`}
           </div>
 
-          {/* Stimuli Centered */}
-          <div className="absolute inset-0 flex flex-row items-center justify-center gap-1 px-1">
+          {/* Centered Stimuli */}
+          <div className="flex-1 flex flex-row items-center justify-center gap-1 w-full overflow-hidden">
             <div className="flex items-center justify-center" style={{ width: blobSize, height: blobSize }}>
               <div ref={leftEmojiRef} className="rounded-full" style={{ width: innerSize, height: innerSize, backgroundColor: yellowColor, filter: 'blur(18px)', transform: 'translateZ(0)' }}></div>
             </div>
@@ -355,11 +355,11 @@ const { useState, useEffect, useRef } = React;
             </div>
           </div>
 
-          {/* Buttons Fixed to Bottom */}
-          <div className="absolute bottom-[40px] left-0 right-0 flex flex-row gap-3 px-4 w-full max-w-md mx-auto">
+          {/* Bottom Buttons - Now using flex positioning to stay in safe area */}
+          <div className="pb-8 flex flex-row gap-3 w-full max-w-md mx-auto">
             {['Left', 'Same', 'Right'].map(lbl => (
               <button key={lbl} onPointerDown={() => handleResponse(lbl)} 
-                className="flex-1 bg-black text-white font-black py-8 rounded-2xl shadow-xl active:bg-zinc-900 transition-colors">
+                className="flex-1 bg-black text-white font-black py-8 rounded-2xl shadow-xl">
                 {lbl.toUpperCase()}
               </button>
             ))}
