@@ -98,12 +98,11 @@ const { useState, useEffect, useRef } = React;
     function SynchronyTest() {
       const [phase, setPhase] = useState('intro');
       const [results, setResults] = useState([]);
-      const [fps, setFps] = useState(0);
-      const [frameMs, setFrameMs] = useState(8.33); // Default to 120Hz
       const [currentStep, setCurrentStep] = useState(15); 
-      const [trialCount, setTrialCount] = useState(0);
       const [streak, setStreak] = useState(0);
-      
+      const [trialCount, setTrialCount] = useState(0);
+      const MAX_TRIALS = 40;
+
       const [yellowVal, setYellowVal] = useState(90); 
       const [isCalibrating, setIsCalibrating] = useState(false);
 
@@ -112,34 +111,11 @@ const { useState, useEffect, useRef } = React;
       const audioContextRef = useRef(null);
       const hasRespondedRef = useRef(false);
       const flashEndTimeRef = useRef(0);
-      const currentSideRef = useRef(1);
+      const currentSideRef = useRef(1); 
 
-      const MAX_TRIALS = 40;
-      const PULSE_WIDTH = 200;
+      const FRAME_MS = 1000 / 120; 
+      const PULSE_WIDTH = 200; 
 
-      // FPS Detection Logic
-      useEffect(() => {
-        let frameCount = 0;
-        let startTime = performance.now();
-        
-        const checkFps = (now) => {
-          frameCount++;
-          if (now - startTime >= 1000) {
-            const detectedFps = Math.round(frameCount * 1000 / (now - startTime));
-            setFps(detectedFps);
-            setFrameMs(1000 / detectedFps);
-            // Adjust starting step if on a 60Hz screen
-            if (detectedFps < 80) setCurrentStep(8); 
-            frameCount = 0;
-            startTime = now;
-          }
-          requestAnimationFrame(checkFps);
-        };
-        const raf = requestAnimationFrame(checkFps);
-        return () => cancelAnimationFrame(raf);
-      }, []);
-
-      // Calibration Flicker
       useEffect(() => {
         let rafId;
         const tick = (time) => {
@@ -153,10 +129,22 @@ const { useState, useEffect, useRef } = React;
         return () => cancelAnimationFrame(rafId);
       }, [isCalibrating, yellowVal]);
 
+      const playHaptic = () => {
+        if (navigator.vibrate) navigator.vibrate(15);
+        if (audioContextRef.current?.state === 'running') {
+          const osc = audioContextRef.current.createOscillator();
+          const gain = audioContextRef.current.createGain();
+          osc.connect(gain); gain.connect(audioContextRef.current.destination);
+          osc.frequency.setValueAtTime(150, audioContextRef.current.currentTime);
+          gain.gain.setValueAtTime(0.05, audioContextRef.current.currentTime);
+          osc.start(); osc.stop(audioContextRef.current.currentTime + 0.1);
+        }
+      };
+
       const runTrial = (frames) => {
         hasRespondedRef.current = false;
         currentSideRef.current = Math.random() > 0.5 ? 1 : -1;
-        const offset = frames * frameMs * currentSideRef.current;
+        const offset = frames * FRAME_MS * currentSideRef.current;
         setPhase('countdown');
         setTimeout(() => {
           setPhase('flash');
@@ -186,7 +174,7 @@ const { useState, useEffect, useRef } = React;
           if (secondRef.current) secondRef.current.style.background = getPulseStyle(w2);
 
           if (elapsed >= absOffset + 300) {
-            flashEndTimeRef.current = performance.now();
+            flashEndTimeRef.current = performance.now(); // Mark for RT calculation
             setPhase('response');
             return;
           }
@@ -198,20 +186,22 @@ const { useState, useEffect, useRef } = React;
       const handleResponse = (response) => {
         if (hasRespondedRef.current || phase !== 'response') return;
         hasRespondedRef.current = true;
-        const rt = (performance.now() - flashEndTimeRef.current).toFixed(1);
-        
-        const isCorrect = response === (currentSideRef.current === 1 ? 'Left' : 'Right');
-        const signedOffsetMs = (currentStep * currentSideRef.current * frameMs).toFixed(2);
+        const responseTime = (performance.now() - flashEndTimeRef.current).toFixed(1);
+        playHaptic();
+
+        const correctSide = currentSideRef.current === 1 ? 'Left' : 'Right';
+        const isCorrect = response === correctSide;
+        const signedOffset = currentStep * currentSideRef.current;
 
         let nextStep = currentStep;
         let nextStreak = streak;
 
         if (!isCorrect) {
-          nextStep = currentStep + 1.5; // Decimal steps allowed, rounded on execution
+          nextStep = currentStep + 2; 
           nextStreak = 0;
         } else {
           if (streak + 1 >= 2) {
-            nextStep = Math.max(0.5, currentStep - 0.5);
+            nextStep = Math.max(1, currentStep - 1);
             nextStreak = 0;
           } else {
             nextStreak = streak + 1;
@@ -220,9 +210,12 @@ const { useState, useEffect, useRef } = React;
 
         setResults(prev => [...prev, { 
           trial: trialCount + 1, 
-          frames: currentStep.toFixed(2),
-          offsetMs: signedOffsetMs,
-          response, isCorrect, rt, fps
+          absFrames: currentStep, 
+          signedFrames: signedOffset,
+          offsetMs: (signedOffset * FRAME_MS).toFixed(2), 
+          response,
+          isCorrect,
+          rt: responseTime
         }]);
         
         if (trialCount + 1 < MAX_TRIALS) {
@@ -239,55 +232,70 @@ const { useState, useEffect, useRef } = React;
         return (
           <div className="flex items-center justify-center min-h-[100dvh] bg-gray-950 text-white p-6">
             <div className="max-w-md w-full text-center space-y-6">
-              <div className="space-y-1">
-                <h1 className="text-3xl font-black italic tracking-tighter">K-DOT STARECASE</h1>
-                <div className={`text-[10px] font-mono inline-block px-2 py-1 rounded ${fps > 100 ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
-                   HARDWARE: {fps}Hz Detected
-                </div>
-              </div>
+              <h1 className="text-3xl font-black italic tracking-tighter">K-DOT STARECASE v2</h1>
               
-              <div className="bg-gray-900 p-6 rounded-3xl space-y-4 border border-white/10 shadow-2xl">
+              <div className="bg-gray-900 p-6 rounded-3xl space-y-4 border border-white/10">
                 <div ref={leftEmojiRef} className="w-24 h-24 mx-auto rounded-full" style={{background: `rgb(${yellowVal},${yellowVal},0)`}}></div>
-                <button onPointerDown={() => setIsCalibrating(!isCalibrating)} className="w-full py-4 rounded-2xl font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                <button onPointerDown={() => setIsCalibrating(!isCalibrating)} className={`w-full py-4 rounded-2xl font-bold ${isCalibrating ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}`}>
                   {isCalibrating ? "STOP" : "CALIBRATE"}
                 </button>
+                
                 <div className="flex items-center gap-3">
                   <button onClick={() => setYellowVal(v => Math.max(40, v-1))} className="bg-gray-800 w-12 h-12 rounded-xl border border-white/10">-</button>
                   <input type="range" min="40" max="160" value={yellowVal} onChange={e => setYellowVal(parseInt(e.target.value))} className="flex-1 h-2 accent-yellow-400" />
                   <button onClick={() => setYellowVal(v => Math.min(160, v+1))} className="bg-gray-800 w-12 h-12 rounded-xl border border-white/10">+</button>
                 </div>
+                <div className="text-[10px] font-mono text-gray-500">YELLOW TARGET: {yellowVal}</div>
               </div>
 
-              <button onClick={() => {if (!audioContextRef.current) audioContextRef.current = new AudioContext(); runTrial(currentStep);}} className="w-full bg-white text-black py-5 rounded-3xl font-black text-xl shadow-xl active:scale-95 transition-all">START EXPERIMENT</button>
+              <button onClick={() => {if (!audioContextRef.current) audioContextRef.current = new AudioContext(); runTrial(currentStep);}} className="w-full bg-white text-black py-5 rounded-3xl font-black text-xl shadow-xl">BEGIN SESSION</button>
             </div>
           </div>
         );
       }
 
       if (phase === 'complete') {
-        const threshold = (results.slice(-10).reduce((acc, r) => acc + Math.abs(parseFloat(r.offsetMs)), 0) / 10).toFixed(1);
+        const threshold = (results.slice(-10).reduce((acc, r) => acc + r.absFrames * FRAME_MS, 0) / 10).toFixed(1);
+        const bins = {};
+        results.forEach(r => {
+          if(!bins[r.signedFrames]) bins[r.signedFrames] = {right: 0, total: 0};
+          bins[r.signedFrames].total++;
+          if(r.response === 'Right') bins[r.signedFrames].right++;
+        });
+
         return (
           <div className="min-h-[100dvh] bg-gray-950 text-white p-6 flex flex-col items-center overflow-auto">
             <h2 className="text-xs font-bold text-gray-500 uppercase mb-1">Session JND</h2>
-            <div className="text-5xl font-black mb-10">{threshold}<span className="text-lg text-gray-500 ml-1">ms</span></div>
+            <div className="text-5xl font-black mb-6">{threshold}ms</div>
             
+            <div className="w-full max-w-md bg-gray-900 p-6 rounded-3xl border border-white/5 mb-6">
+              <div className="h-40 w-full border-l border-b border-white/10 relative">
+                <div className="absolute w-full h-[1px] bg-white/5 top-1/2"></div>
+                <div className="absolute h-full w-[1px] bg-white/5 left-1/2"></div>
+                {Object.entries(bins).sort((a,b) => a[0]-b[0]).map(([frame, data]) => (
+                  <div key={frame} className="absolute w-2 h-2 bg-blue-500 rounded-full" style={{left: `${(parseFloat(frame)/30*50)+50}%`, bottom: `${(data.right/data.total)*100}%`, transform: 'translate(-50%, 50%)'}} />
+                ))}
+              </div>
+              <div className="flex justify-between text-[8px] text-gray-600 mt-2 font-mono"><span>Left 1st</span><span>Right 1st</span></div>
+            </div>
+
             <button onClick={() => {
                 const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-                const csvHeader = "Trial,Actual_Offset_ms,Frames_Step,Response,Is_Correct,RT_ms,Hardware_FPS,Yellow_Level\n";
-                const csvBody = results.map(r => `${r.trial},${r.offsetMs},${r.frames},${r.response},${r.isCorrect},${r.rt},${r.fps},${yellowVal}`).join('\n');
+                const csvHeader = "Trial,Actual_Offset_ms,Frames,Response,Is_Correct,Response_Time_ms,Yellow_Val\n";
+                const csvBody = results.map(r => `${r.trial},${r.offsetMs},${r.signedFrames},${r.response},${r.isCorrect},${r.rt},${yellowVal}`).join('\n');
                 const blob = new Blob([csvHeader + csvBody], { type: 'text/csv' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                a.href = url; a.download = `K-Data-${fps}Hz-${ts}.csv`; a.click();
-            }} className="w-full max-w-md bg-blue-600 py-4 rounded-2xl font-black mb-4">SAVE {fps}Hz DATA</button>
-            <button onClick={() => window.location.reload()} className="w-full max-w-md bg-gray-800 py-4 rounded-2xl font-bold">RESTART</button>
+                a.href = url; a.download = `K-Data-${ts}.csv`; a.click();
+            }} className="w-full max-w-md bg-blue-600 py-4 rounded-2xl font-black mb-4">SAVE DATA (CSV)</button>
+            <button onClick={() => window.location.reload()} className="w-full max-w-md bg-gray-800 py-4 rounded-2xl font-bold">NEW SESSION</button>
           </div>
         );
       }
 
       return (
         <div className="flex flex-col justify-between items-center h-[100dvh] w-full p-6" style={{ backgroundColor: `rgb(${yellowVal},${yellowVal},0)` }}>
-          <div className="pt-10 font-bold text-black/30 uppercase text-sm">Trial {trialCount + 1} / {MAX_TRIALS} | {fps}Hz</div>
+          <div className="pt-10 font-bold text-black/30 uppercase text-sm">Trial {trialCount + 1} / {MAX_TRIALS}</div>
           <div className="flex-1 flex items-center justify-center gap-4 w-full">
               <div ref={leftEmojiRef} className="rounded-full w-[42vw] h-[42vw] max-w-[280px]"></div>
               <div ref={rightEmojiRef} className="rounded-full w-[42vw] h-[42vw] max-w-[280px]"></div>
