@@ -218,7 +218,152 @@ const { useState, useEffect, useRef } = React;
           }
           if (secondRef.current) {
             secondRef.current.style.backgroundColor = 
-              `rgb(${lerpCh(yellowR,blueR,w2)},${lerpCh
+              `rgb(${lerpCh(yellowR,blueR,w2)},${lerpCh(yellowG,blueG,w2)},${lerpCh(yellowB,blueB,w2)})`;
+          }
+
+          if (elapsed >= totalWindow + (DURATION / 2)) {
+            const bgStr = `rgb(${yellowR},${yellowG},${yellowB})`;
+            if (leftEmojiRef.current) leftEmojiRef.current.style.backgroundColor = bgStr;
+            if (rightEmojiRef.current) rightEmojiRef.current.style.backgroundColor = bgStr;
+            flashEndTimeRef.current = performance.now();
+            setPhase('response');
+            return;
+          }
+          requestAnimationFrame(animate);
+        };
+        requestAnimationFrame(animate);
+      };
+
+      const handleResponse = (response) => {
+        if (hasRespondedRef.current || phase !== 'response') return;
+        hasRespondedRef.current = true;
+        playHaptic();
+        
+        const reactionTime = Math.round(performance.now() - flashEndTimeRef.current);
+        const offset = currentTrial === -1 ? 0 : trials[currentTrial];
+        
+        const result = {
+          trial: currentTrial === -1 ? 'Practice' : currentTrial + 1,
+          offset: offset.toFixed(3),
+          response: response,
+          reactionTime: reactionTime,
+          fps: fps,
+          timestamp: new Date().toISOString()
+        };
+
+        if (currentTrial === -1) {
+          setTimeout(() => runTrial(0), 500);
+          setCurrentTrial(0);
+        } else {
+          setResults(prev => [...prev, result]);
+          if (currentTrial < trials.length - 1) {
+            setTimeout(() => runTrial(currentTrial + 1), 500);
+            setCurrentTrial(prev => prev + 1);
+          } else {
+            setPhase('complete');
+            document.body.classList.remove('no-scroll');
+          }
+        }
+      };
+
+      if (phase === 'intro') {
+        const yellowColor = `rgb(${yellowR}, ${yellowG}, ${yellowB})`;
+        return (
+          <div className="flex items-center justify-center min-h-[100dvh] bg-gray-900 text-white p-6">
+            <div className="max-w-2xl w-full text-center">
+              <h1 className="text-3xl font-bold mb-6">Synchrony Test</h1>
+              <div className="bg-gray-800 p-6 rounded-2xl mb-6 space-y-4">
+                <div className="text-xs text-gray-400">Background RGB / Pulse RGB</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[yellowR,yellowG,yellowB].map((v,i) => (
+                    <input key={i} type="number" value={v} onChange={e => {
+                      const val = parseInt(e.target.value)||0;
+                      if(i==0)setYellowR(val); if(i==1)setYellowG(val); if(i==2)setYellowB(val);
+                    }} className="bg-gray-700 p-3 rounded-lg text-center" />
+                  ))}
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[blueR,blueG,blueB].map((v,i) => (
+                    <input key={i} type="number" value={v} onChange={e => {
+                      const val = parseInt(e.target.value)||0;
+                      if(i==0)setBlueR(val); if(i==1)setBlueG(val); if(i==2)setBlueB(val);
+                    }} className="bg-gray-700 p-3 rounded-lg text-center" />
+                  ))}
+                </div>
+              </div>
+              <button onClick={startTest} className="w-full bg-blue-600 py-5 rounded-2xl font-bold text-xl active:scale-95 transition-transform">START TEST</button>
+            </div>
+          </div>
+        );
+      }
+
+      if (phase === 'complete') {
+        const csvText = 'Trial,Offset_ms,Response,RT_ms,FPS,Timestamp\n' + results.map(r => `${r.trial},${r.offset},${r.response},${r.reactionTime},${r.fps},${r.timestamp}`).join('\n');
+        const uniqueOffsets = [0, 8.333, 16.667, 25.0, 33.333, 41.667, 50.0, 66.667, 83.333, 100.0];
+        
+        return (
+          <div className="min-h-[100dvh] bg-gray-900 text-white p-6 flex flex-col items-center overflow-auto">
+            <h1 className="text-2xl font-bold mb-6">Results Summary</h1>
+            <div className="w-full max-w-md bg-gray-800 p-4 rounded-xl mb-6 space-y-3">
+              {uniqueOffsets.map(val => {
+                const matches = results.filter(r => Math.abs(Math.abs(parseFloat(r.offset)) - val) < 1);
+                const sameCount = matches.filter(r => r.response === 'Same').length;
+                const pct = matches.length ? Math.round((sameCount / matches.length) * 100) : 0;
+                return (
+                  <div key={val} className="flex items-center gap-2 text-xs">
+                    <div className="w-12 font-mono">{val.toFixed(1)}ms</div>
+                    <div className="flex-1 bg-gray-700 h-5 rounded-full overflow-hidden">
+                      <div className="bg-blue-500 h-full" style={{width:`${pct}%`}}/>
+                    </div>
+                    <div className="w-12 text-right font-bold">{pct}%</div>
+                  </div>
+                );
+              })}
+            </div>
+            <button onClick={() => {
+                const blob = new Blob([csvText], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `sync-results.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }} className="w-full max-w-md bg-blue-600 py-4 rounded-xl font-bold mb-4 shadow-lg">Download CSV</button>
+            <textarea readOnly value={csvText} className="w-full max-w-md h-32 bg-black p-4 font-mono text-[10px] rounded-xl border border-gray-800"/>
+          </div>
+        );
+      }
+
+      const yellowColor = `rgb(${yellowR}, ${yellowG}, ${yellowB})`;
+      const blobSize = "min(44vw, 280px)"; 
+
+      return (
+        <div className="flex flex-col justify-between items-center h-[100dvh] w-full touch-none select-none p-6" style={{ backgroundColor: yellowColor }}>
+          <div className="pt-10 font-bold text-black/30 tracking-widest text-sm uppercase">
+             {currentTrial === -1 ? "Practice" : `Trial ${currentTrial+1}/${trials.length}`}
+          </div>
+
+          <div className="flex-1 flex flex-row items-center justify-center gap-2 w-full">
+              <div ref={leftEmojiRef} className="rounded-full shrink-0" 
+                   style={{ width: blobSize, height: blobSize, backgroundColor: yellowColor, filter: 'blur(22px)', transform: 'translateZ(0)' }}></div>
+              <div ref={rightEmojiRef} className="rounded-full shrink-0" 
+                   style={{ width: blobSize, height: blobSize, backgroundColor: yellowColor, filter: 'blur(22px)', transform: 'translateZ(0)' }}></div>
+          </div>
+
+          <div className="pb-8 mb-[env(safe-area-inset-bottom)] flex flex-row gap-3 w-full max-w-md mx-auto">
+            {['Left', 'Same', 'Right'].map(lbl => (
+              <button key={lbl} onPointerDown={() => handleResponse(lbl)} 
+                className="flex-1 bg-black text-white font-black py-8 rounded-2xl shadow-2xl">
+                {lbl.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<SynchronyTest />);
   </script>
 </body>
 </html>
