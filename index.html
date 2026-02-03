@@ -93,7 +93,7 @@
   
   <!-- React Component - Embedded Directly -->
   <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
+   const { useState, useEffect, useRef } = React;
 
     function SynchronyTest() {
       const [phase, setPhase] = useState('intro');
@@ -102,7 +102,6 @@
       const [currentTrial, setCurrentTrial] = useState(-1);
       const [results, setResults] = useState([]);
       const [trials, setTrials] = useState([]);
-      const [animationOffset, setAnimationOffset] = useState(0);
       
       const [yellowR, setYellowR] = useState(255);
       const [yellowG, setYellowG] = useState(215);
@@ -158,17 +157,17 @@
       }, []);
 
       const playHaptic = () => {
-        if (navigator.vibrate) navigator.vibrate(10);
+        if (navigator.vibrate) navigator.vibrate(15);
         if (audioContextRef.current && audioContextRef.current.state === 'running') {
           const osc = audioContextRef.current.createOscillator();
           const gain = audioContextRef.current.createGain();
           osc.connect(gain);
           gain.connect(audioContextRef.current.destination);
-          osc.frequency.value = 200;
+          osc.frequency.setValueAtTime(150, audioContextRef.current.currentTime);
           gain.gain.setValueAtTime(0.1, audioContextRef.current.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, audioContextRef.current.currentTime + 0.05);
+          gain.gain.exponentialRampToValueAtTime(0.01, audioContextRef.current.currentTime + 0.1);
           osc.start();
-          osc.stop(audioContextRef.current.currentTime + 0.05);
+          osc.stop(audioContextRef.current.currentTime + 0.1);
         }
       };
 
@@ -190,31 +189,32 @@
         setTimeout(() => {
           setPhase('flash');
           executeFlash(offset);
-        }, 500);
+        }, 600);
       };
 
-      const gaussEnvelope = (t, tStart, tEnd) => {
-        if (t <= tStart || t >= tEnd) return 0;
-        const dur = tEnd - tStart;
-        const mid = tStart + dur / 2;
-        const sigma = dur / 5;
-        return Math.exp(-0.5 * Math.pow((t - mid) / sigma, 2));
+      // Improved Gaussian that takes a center peak time and a width
+      const gaussPulse = (t, center, width) => {
+        const sigma = width / 5;
+        return Math.exp(-0.5 * Math.pow((t - center) / sigma, 2));
       };
 
       const lerpCh = (a, b, w) => Math.round(a + (b - a) * w);
 
       const executeFlash = (offsetMs) => {
         const startTime = performance.now();
-        const FLASH_DURATION = 70;
+        const DURATION = 100; 
         const absOffset = Math.abs(offsetMs);
-        const firstEnd = absOffset + FLASH_DURATION;
+        const totalWindow = absOffset + DURATION;
+
         const firstRef = offsetMs >= 0 ? leftEmojiRef : rightEmojiRef;
         const secondRef = offsetMs >= 0 ? rightEmojiRef : leftEmojiRef;
 
         const animate = (now) => {
           const elapsed = now - startTime;
-          const w1 = gaussEnvelope(elapsed, 0, absOffset + FLASH_DURATION);
-          const w2 = gaussEnvelope(elapsed, absOffset, absOffset + FLASH_DURATION);
+          
+          // Peak 1 is at half-duration. Peak 2 is at absOffset + half-duration.
+          const w1 = gaussPulse(elapsed, DURATION / 2, DURATION);
+          const w2 = gaussPulse(elapsed, absOffset + (DURATION / 2), DURATION);
 
           if (firstRef.current) {
             firstRef.current.style.backgroundColor = 
@@ -225,13 +225,12 @@
               `rgb(${lerpCh(yellowR,blueR,w2)},${lerpCh(yellowG,blueG,w2)},${lerpCh(yellowB,blueB,w2)})`;
           }
 
-          if (elapsed >= firstEnd) {
+          if (elapsed >= totalWindow + (DURATION / 2)) {
             const bgStr = `rgb(${yellowR},${yellowG},${yellowB})`;
             if (leftEmojiRef.current) leftEmojiRef.current.style.backgroundColor = bgStr;
             if (rightEmojiRef.current) rightEmojiRef.current.style.backgroundColor = bgStr;
             flashEndTimeRef.current = performance.now();
             setPhase('response');
-            playHaptic();
             return;
           }
           requestAnimationFrame(animate);
@@ -271,104 +270,81 @@
         }
       };
 
-      // Intro view
       if (phase === 'intro') {
         const yellowColor = `rgb(${yellowR}, ${yellowG}, ${yellowB})`;
         const blueColor = `rgb(${blueR}, ${blueG}, ${blueB})`;
         return (
           <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white p-6">
-            <div className="max-w-2xl w-full">
-              <h1 className="text-3xl font-bold mb-4 text-center">Synchrony Test</h1>
-              <div className={`mb-6 p-4 rounded-lg text-center ${is120Hz ? 'bg-green-900/30 border border-green-500' : 'bg-red-900/30 border border-red-500'}`}>
-                <p className="font-bold">Display: {fps}Hz</p>
-              </div>
-              <div className="bg-gray-800 p-6 rounded-lg mb-6 space-y-4">
-                <h2 className="font-bold">Color Settings</h2>
-                <div>
-                  <div className="flex justify-between text-xs mb-1"><span>BG (R,G,B)</span><div className="w-8 h-4 rounded" style={{backgroundColor:yellowColor}}/></div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <input type="number" value={yellowR} onChange={e=>setYellowR(parseInt(e.target.value)||0)} className="bg-gray-700 p-2 rounded text-center"/>
-                    <input type="number" value={yellowG} onChange={e=>setYellowG(parseInt(e.target.value)||0)} className="bg-gray-700 p-2 rounded text-center"/>
-                    <input type="number" value={yellowB} onChange={e=>setYellowB(parseInt(e.target.value)||0)} className="bg-gray-700 p-2 rounded text-center"/>
-                  </div>
+            <div className="max-w-2xl w-full text-center">
+              <h1 className="text-3xl font-bold mb-6">Synchrony Test</h1>
+              <div className="bg-gray-800 p-6 rounded-2xl mb-6 space-y-4 shadow-xl">
+                <div className="text-sm text-gray-400 mb-2">Background Color</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[yellowR,yellowG,yellowB].map((v,i) => (
+                    <input key={i} type="number" value={v} 
+                    onChange={e => {
+                      const val = parseInt(e.target.value)||0;
+                      if(i==0)setYellowR(val); if(i==1)setYellowG(val); if(i==2)setYellowB(val);
+                    }} className="bg-gray-700 p-3 rounded-lg text-center" />
+                  ))}
                 </div>
-                <div>
-                  <div className="flex justify-between text-xs mb-1"><span>Pulse (R,G,B)</span><div className="w-8 h-4 rounded" style={{backgroundColor:blueColor}}/></div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <input type="number" value={blueR} onChange={e=>setBlueR(parseInt(e.target.value)||0)} className="bg-gray-700 p-2 rounded text-center"/>
-                    <input type="number" value={blueG} onChange={e=>setBlueG(parseInt(e.target.value)||0)} className="bg-gray-700 p-2 rounded text-center"/>
-                    <input type="number" value={blueB} onChange={e=>setBlueB(parseInt(e.target.value)||0)} className="bg-gray-700 p-2 rounded text-center"/>
-                  </div>
+                <div className="text-sm text-gray-400 mt-4 mb-2">Pulse Color</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[blueR,blueG,blueB].map((v,i) => (
+                    <input key={i} type="number" value={v} 
+                    onChange={e => {
+                      const val = parseInt(e.target.value)||0;
+                      if(i==0)setBlueR(val); if(i==1)setBlueG(val); if(i==2)setBlueB(val);
+                    }} className="bg-gray-700 p-3 rounded-lg text-center" />
+                  ))}
                 </div>
               </div>
-              <button onClick={startTest} className="w-full bg-blue-600 py-4 rounded-xl font-bold text-xl">Start Test</button>
+              <button onClick={startTest} className="w-full bg-blue-600 py-5 rounded-2xl font-bold text-xl active:scale-95 transition-transform">START TEST</button>
             </div>
           </div>
         );
       }
 
-      // Results view
       if (phase === 'complete') {
         const csvText = 'Trial,Offset_ms,Response,RT_ms,FPS,Timestamp\n' + results.map(r => `${r.trial},${r.offset},${r.response},${r.reactionTime},${r.fps},${r.timestamp}`).join('\n');
-        const uniqueOffsets = [0, 8.333, 16.667, 25.0, 33.333, 41.667, 50.0, 66.667, 83.333, 100.0];
         return (
-          <div className="min-h-screen bg-gray-900 text-white p-4">
-            <h1 className="text-2xl font-bold mb-4">Results</h1>
-            <div className="bg-gray-800 p-4 rounded-lg mb-4 space-y-2">
-              {uniqueOffsets.map(val => {
-                const matches = results.filter(r => Math.abs(Math.abs(parseFloat(r.offset)) - val) < 1);
-                const same = matches.filter(r => r.response === 'Same').length;
-                const pct = matches.length ? Math.round((same / matches.length) * 100) : 0;
-                return (
-                  <div key={val} className="flex items-center gap-2 text-xs">
-                    <div className="w-12 font-mono">{val.toFixed(1)}</div>
-                    <div className="flex-1 bg-gray-700 h-4 rounded-full overflow-hidden">
-                      <div className="bg-blue-500 h-full" style={{width:`${pct}%`}}/>
-                    </div>
-                    <div className="w-8">{pct}%</div>
-                  </div>
-                );
-              })}
-            </div>
+          <div className="min-h-screen bg-gray-900 text-white p-6 flex flex-col items-center">
+            <h1 className="text-2xl font-bold mb-6">Complete</h1>
             <button onClick={() => {
                 const blob = new Blob([csvText], { type: 'text/csv' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `data-${Date.now()}.csv`;
+                a.download = `sync-results.csv`;
                 a.click();
                 URL.revokeObjectURL(url);
-            }} className="w-full bg-blue-600 py-3 rounded font-bold mb-4">Download CSV</button>
-            <textarea readOnly value={csvText} className="w-full h-32 bg-black p-2 font-mono text-[10px] rounded border border-gray-800"/>
+            }} className="w-full max-w-md bg-blue-600 py-4 rounded-xl font-bold mb-6 shadow-lg">Download CSV</button>
+            <textarea readOnly value={csvText} className="w-full max-w-md h-64 bg-black p-4 font-mono text-[10px] rounded-xl border border-gray-800"/>
           </div>
         );
       }
 
-      // Trial view
       const yellowColor = `rgb(${yellowR}, ${yellowG}, ${yellowB})`;
-      // Responsive size: 28% of screen width, but no larger than 200px
-      const blobSize = "min(28vw, 200px)"; 
-      const innerSize = "min(24vw, 180px)";
+      const blobSize = "min(42vw, 300px)"; 
+      const innerSize = "min(38vw, 280px)";
 
       return (
         <div className="flex flex-col items-center justify-center min-h-screen touch-none select-none" style={{ backgroundColor: yellowColor }}>
-          <div className="absolute top-4 text-xs font-bold opacity-50" style={{color:'#000'}}>
-             {currentTrial === -1 ? "Practice" : `Trial ${currentTrial+1}/${trials.length}`} | {fps}Hz
+          <div className="absolute top-12 font-bold text-black/30 tracking-widest text-sm">
+             {currentTrial === -1 ? "PRACTICE" : `TRIAL ${currentTrial+1}/${trials.length}`}
           </div>
-          
-          <div className="flex flex-row items-center justify-center gap-4 mb-16 w-full px-4 overflow-hidden">
-            <div className="flex items-center justify-center rounded-full" style={{ width: blobSize, height: blobSize, backgroundColor: yellowColor }}>
-              <div ref={leftEmojiRef} className="rounded-full" style={{ width: innerSize, height: innerSize, backgroundColor: yellowColor, filter: 'blur(20px)', willChange: 'transform' }}></div>
+          <div className="flex flex-row items-center justify-center gap-2 mb-28 w-full px-2">
+            <div className="flex items-center justify-center" style={{ width: blobSize, height: blobSize }}>
+              <div ref={leftEmojiRef} className="rounded-full" style={{ width: innerSize, height: innerSize, backgroundColor: yellowColor, filter: 'blur(18px)', transform: 'translateZ(0)' }}></div>
             </div>
-            <div className="flex items-center justify-center rounded-full" style={{ width: blobSize, height: blobSize, backgroundColor: yellowColor }}>
-              <div ref={rightEmojiRef} className="rounded-full" style={{ width: innerSize, height: innerSize, backgroundColor: yellowColor, filter: 'blur(20px)', willChange: 'transform' }}></div>
+            <div className="flex items-center justify-center" style={{ width: blobSize, height: blobSize }}>
+              <div ref={rightEmojiRef} className="rounded-full" style={{ width: innerSize, height: innerSize, backgroundColor: yellowColor, filter: 'blur(18px)', transform: 'translateZ(0)' }}></div>
             </div>
           </div>
-
-          <div className="flex flex-row gap-2 px-4 w-full max-w-md">
+          <div className="flex flex-row gap-3 px-3 w-full max-w-md fixed bottom-12">
             {['Left', 'Same', 'Right'].map(lbl => (
               <button key={lbl} onPointerDown={() => handleResponse(lbl)} disabled={phase !== 'response'} 
-                className="flex-1 bg-zinc-800/80 text-white font-bold py-5 rounded-xl shadow-xl active:bg-zinc-700 disabled:opacity-0 transition-opacity">
+                className="flex-1 bg-black text-white font-black py-8 rounded-2xl shadow-2xl disabled:opacity-0 active:scale-90 transition-all">
                 {lbl.toUpperCase()}
               </button>
             ))}
