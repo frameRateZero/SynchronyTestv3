@@ -103,29 +103,30 @@ const { useState, useEffect, useRef } = React;
       const [trialCount, setTrialCount] = useState(0);
       const MAX_TRIALS = 40;
 
-      const [yellowVal, setYellowVal] = useState(120); 
+      const [yellowVal, setYellowVal] = useState(90); 
       const [isCalibrating, setIsCalibrating] = useState(false);
 
       const leftEmojiRef = useRef(null);
       const rightEmojiRef = useRef(null);
       const audioContextRef = useRef(null);
       const hasRespondedRef = useRef(false);
-      const flashEndTimeRef = useRef(0);
       const currentSideRef = useRef(1); 
 
       const FRAME_MS = 1000 / 120; 
       const PULSE_WIDTH = 200; 
 
+      // FIXED: Smooth Flicker Calibration
       useEffect(() => {
-        if (!isCalibrating) return;
-        let count = 0;
-        const interval = setInterval(() => {
-          const isYellow = count % 2 === 0;
-          const color = isYellow ? `rgb(${yellowVal},${yellowVal},0)` : `rgb(0,0,255)`;
-          if (leftEmojiRef.current) leftEmojiRef.current.style.background = color;
-          count++;
-        }, 50); 
-        return () => clearInterval(interval);
+        let rafId;
+        const tick = (time) => {
+          if (isCalibrating && leftEmojiRef.current) {
+            const isYellow = Math.floor(time / 50) % 2 === 0;
+            leftEmojiRef.current.style.background = isYellow ? `rgb(${yellowVal},${yellowVal},0)` : `rgb(0,0,255)`;
+          }
+          rafId = requestAnimationFrame(tick);
+        };
+        rafId = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(rafId);
       }, [isCalibrating, yellowVal]);
 
       const playHaptic = () => {
@@ -144,7 +145,6 @@ const { useState, useEffect, useRef } = React;
         hasRespondedRef.current = false;
         currentSideRef.current = Math.random() > 0.5 ? 1 : -1;
         const offset = frames * FRAME_MS * currentSideRef.current;
-        
         setPhase('countdown');
         setTimeout(() => {
           setPhase('flash');
@@ -167,19 +167,15 @@ const { useState, useEffect, useRef } = React;
 
         const animate = (now) => {
           const elapsed = now - startTime;
-          const center1 = PULSE_WIDTH / 2;
-          const center2 = absOffset + (PULSE_WIDTH / 2);
-          
-          const w1 = Math.exp(-0.5 * Math.pow((elapsed - center1) / 40, 2));
-          const w2 = Math.exp(-0.5 * Math.pow((elapsed - center2) / 40, 2));
+          const w1 = Math.exp(-0.5 * Math.pow((elapsed - 100) / 40, 2));
+          const w2 = Math.exp(-0.5 * Math.pow((elapsed - (absOffset + 100)) / 40, 2));
           
           if (firstRef.current) firstRef.current.style.background = getPulseStyle(w1);
           if (secondRef.current) secondRef.current.style.background = getPulseStyle(w2);
 
-          if (elapsed >= absOffset + PULSE_WIDTH + 50) {
+          if (elapsed >= absOffset + 300) {
             if (leftEmojiRef.current) leftEmojiRef.current.style.background = getPulseStyle(0);
             if (rightEmojiRef.current) rightEmojiRef.current.style.background = getPulseStyle(0);
-            flashEndTimeRef.current = performance.now();
             setPhase('response');
             return;
           }
@@ -189,14 +185,18 @@ const { useState, useEffect, useRef } = React;
       };
 
       const handleResponse = (response) => {
-        // BUTTONS ARE IGNORED UNTIL PHASE IS 'response'
         if (hasRespondedRef.current || phase !== 'response') return;
         hasRespondedRef.current = true;
         playHaptic();
 
-        const isCorrect = response === (currentSideRef.current === 1 ? 'Left' : 'Right');
+        const correctSide = currentSideRef.current === 1 ? 'Left' : 'Right';
+        const isCorrect = response === correctSide;
+        
+        // Directional data for psychometric curve
+        const signedOffset = currentStep * currentSideRef.current;
+
         let nextStep = currentStep;
-        let nextStreak = 0;
+        let nextStreak = streak;
 
         if (!isCorrect) {
           nextStep = currentStep + 2; 
@@ -210,7 +210,14 @@ const { useState, useEffect, useRef } = React;
           }
         }
 
-        setResults(prev => [...prev, { trial: trialCount + 1, frames: currentStep, offset_ms: (currentStep * FRAME_MS).toFixed(2), isCorrect }]);
+        setResults(prev => [...prev, { 
+          trial: trialCount + 1, 
+          frames: currentStep, 
+          signedFrames: signedOffset,
+          offset_ms: (currentStep * FRAME_MS).toFixed(2), 
+          response,
+          isCorrect 
+        }]);
         
         if (trialCount + 1 < MAX_TRIALS) {
           setTrialCount(prev => prev + 1);
@@ -224,51 +231,72 @@ const { useState, useEffect, useRef } = React;
 
       if (phase === 'intro') {
         return (
-          <div className="flex items-center justify-center min-h-[100dvh] bg-gray-900 text-white p-6">
+          <div className="flex items-center justify-center min-h-[100dvh] bg-gray-950 text-white p-6">
             <div className="max-w-md w-full text-center space-y-6">
-              <h1 className="text-3xl font-bold">K-Pathway JND</h1>
-              <div className="bg-gray-800 p-6 rounded-2xl space-y-4">
+              <h1 className="text-3xl font-black">K-STAIRCASE</h1>
+              
+              <div className="bg-gray-900 p-6 rounded-3xl space-y-4 border border-white/10 shadow-2xl">
                 <div ref={leftEmojiRef} className="w-24 h-24 mx-auto rounded-full" style={{background: `rgb(${yellowVal},${yellowVal},0)`}}></div>
-                <button onPointerDown={() => setIsCalibrating(!isCalibrating)} className="w-full bg-blue-600/20 text-blue-400 py-3 rounded-xl font-bold border border-blue-500/40">
+                <button onPointerDown={() => setIsCalibrating(!isCalibrating)} className={`w-full py-4 rounded-2xl font-bold transition-all ${isCalibrating ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}`}>
                   {isCalibrating ? "STOP" : "CALIBRATE"}
                 </button>
-                <input type="range" min="50" max="255" value={yellowVal} onChange={e => setYellowVal(parseInt(e.target.value))} className="w-full accent-yellow-400" />
-                <div className="text-[10px] text-gray-500 font-mono">Yellow: {yellowVal}</div>
+                
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setYellowVal(v => Math.max(40, v-1))} className="bg-gray-800 w-12 h-12 rounded-xl border border-white/10">-</button>
+                  <input type="range" min="40" max="160" value={yellowVal} onChange={e => setYellowVal(parseInt(e.target.value))} className="flex-1 h-2 accent-yellow-400" />
+                  <button onClick={() => setYellowVal(v => Math.min(160, v+1))} className="bg-gray-800 w-12 h-12 rounded-xl border border-white/10">+</button>
+                </div>
+                <div className="text-[10px] font-mono text-gray-500">SET YELLOW: {yellowVal}</div>
               </div>
-              <button onClick={() => {if (!audioContextRef.current) audioContextRef.current = new AudioContext(); runTrial(currentStep);}} className="w-full bg-blue-600 py-5 rounded-2xl font-bold text-xl">START</button>
+
+              <button onClick={() => {if (!audioContextRef.current) audioContextRef.current = new AudioContext(); runTrial(currentStep);}} className="w-full bg-white text-black py-5 rounded-3xl font-black text-xl active:scale-95 transition-all">START EXPERIMENT</button>
             </div>
           </div>
         );
       }
 
       if (phase === 'complete') {
-        const csv = 'Trial,Frames,Offset_ms,Correct\n' + results.map(r => `${r.trial},${r.frames},${r.offset_ms},${r.isCorrect}`).join('\n');
         const threshold = (results.slice(-10).reduce((acc, r) => acc + parseFloat(r.offset_ms), 0) / 10).toFixed(1);
+        
+        // Group data for Psychometric display
+        const bins = {};
+        results.forEach(r => {
+          if(!bins[r.signedFrames]) bins[r.signedFrames] = {right: 0, total: 0};
+          bins[r.signedFrames].total++;
+          if(r.response === 'Right') bins[r.signedFrames].right++;
+        });
+
         return (
-          <div className="min-h-[100dvh] bg-gray-900 text-white p-6 flex flex-col items-center overflow-auto">
-            <h1 className="text-2xl font-bold mb-2">Threshold</h1>
-            <div className="text-4xl font-black text-blue-400 mb-6">{threshold}ms</div>
-            <div className="w-full max-w-md bg-black p-4 rounded-xl h-48 flex items-end gap-[1px] mb-6 border border-gray-800">
-                {results.map((r, i) => (
-                    <div key={i} className={`flex-1 ${r.isCorrect ? 'bg-blue-500' : 'bg-red-500'}`} style={{height: `${(r.frames/25)*100}%`}}></div>
-                ))}
+          <div className="min-h-[100dvh] bg-gray-950 text-white p-6 flex flex-col items-center">
+            <h2 className="text-sm font-bold text-gray-500 uppercase tracking-tighter mb-1">Estimated Threshold</h2>
+            <div className="text-5xl font-black mb-8">{threshold}<span className="text-lg text-gray-500 ml-1">ms</span></div>
+            
+            <div className="w-full max-w-md bg-gray-900 p-6 rounded-3xl border border-white/5 mb-6">
+              <div className="text-[10px] font-bold text-gray-500 uppercase mb-4 tracking-widest">Psychometric Function (P(Right) vs Offset)</div>
+              <div className="h-48 w-full border-l border-b border-white/10 relative flex items-center">
+                <div className="absolute w-full h-[1px] bg-white/5 top-1/2"></div>
+                <div className="absolute h-full w-[1px] bg-white/5 left-1/2"></div>
+                {Object.entries(bins).sort((a,b) => a[0]-b[0]).map(([frame, data]) => {
+                  const x = (parseFloat(frame) / 20 * 50) + 50;
+                  const y = (data.right / data.total) * 100;
+                  return <div key={frame} className="absolute w-2 h-2 bg-blue-500 rounded-full" style={{left: `${x}%`, bottom: `${y}%`, transform: 'translate(-50%, 50%)'}} />
+                })}
+              </div>
+              <div className="flex justify-between text-[8px] text-gray-600 mt-2 font-mono">
+                <span>Left 1st (-20f)</span>
+                <span>Offset (frames)</span>
+                <span>Right 1st (+20f)</span>
+              </div>
             </div>
-            <button onClick={() => {
-                const blob = new Blob([csv], { type: 'text/csv' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url; a.download = 'k-data.csv'; a.click();
-            }} className="w-full max-w-md bg-blue-600 py-4 rounded-xl font-bold mb-4">Download CSV</button>
-            <button onClick={() => window.location.reload()} className="w-full max-w-md bg-gray-700 py-4 rounded-xl font-bold">Restart</button>
+
+            <button onClick={() => window.location.reload()} className="w-full max-w-md bg-white text-black py-4 rounded-2xl font-black">RESTART</button>
           </div>
         );
       }
 
       return (
         <div className="flex flex-col justify-between items-center h-[100dvh] w-full p-6" style={{ backgroundColor: `rgb(${yellowVal},${yellowVal},0)` }}>
-          <div className="pt-10 font-bold text-black/30 uppercase tracking-widest text-sm">
-            Trial {trialCount + 1} / {MAX_TRIALS}
-          </div>
+          <div className="pt-10 font-bold text-black/30 uppercase tracking-widest text-sm">Trial {trialCount + 1} / {MAX_TRIALS}</div>
           <div className="flex-1 flex items-center justify-center gap-4 w-full">
               <div ref={leftEmojiRef} className="rounded-full w-[42vw] h-[42vw] max-w-[280px]"></div>
               <div ref={rightEmojiRef} className="rounded-full w-[42vw] h-[42vw] max-w-[280px]"></div>
