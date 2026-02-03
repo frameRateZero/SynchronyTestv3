@@ -98,7 +98,7 @@ const { useState, useEffect, useRef } = React;
     function SynchronyTest() {
       const [phase, setPhase] = useState('intro');
       const [results, setResults] = useState([]);
-      const [currentStep, setCurrentStep] = useState(10); ##starting offset 10*8.33 = 83.33 ms
+      const [currentStep, setCurrentStep] = useState(10);//starting offset 10*8.33 = 83.33 ms
       const [streak, setStreak] = useState(0);
       const [trialCount, setTrialCount] = useState(0);
       const MAX_TRIALS = 40;
