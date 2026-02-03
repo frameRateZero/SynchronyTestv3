@@ -95,562 +95,238 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
-    function SynchronyTest() {
-      const [phase, setPhase] = useState('intro');
-      const [fps, setFps] = useState(0);
-      const [is120Hz, setIs120Hz] = useState(false);
-      const [currentTrial, setCurrentTrial] = useState(-1);
-      const [results, setResults] = useState([]);
-      const [trials, setTrials] = useState([]);
-      const [animationOffset, setAnimationOffset] = useState(0);
-      
-      // RGB color inputs
-      const [yellowR, setYellowR] = useState(255);
-      const [yellowG, setYellowG] = useState(215);
-      const [yellowB, setYellowB] = useState(0);
-      const [blueR, setBlueR] = useState(85);
-      const [blueG, setBlueG] = useState(85);
-      const [blueB, setBlueB] = useState(255);
+function SynchronyTest() {
+  const [phase, setPhase] = useState('intro');
+  const [fps, setFps] = useState(0);
+  const [is120Hz, setIs120Hz] = useState(false);
+  const [currentTrial, setCurrentTrial] = useState(-1);
+  const [results, setResults] = useState([]);
+  const [trials, setTrials] = useState([]);
+  const [animationOffset, setAnimationOffset] = useState(0);
+  
+  const [yellowR, setYellowR] = useState(255);
+  const [yellowG, setYellowG] = useState(215);
+  const [yellowB, setYellowB] = useState(0);
+  const [blueR, setBlueR] = useState(85);
+  const [blueG, setBlueG] = useState(85);
+  const [blueB, setBlueB] = useState(255);
 
-      // DOM Refs for direct manipulation (Bypasses React render lag)
-      const leftEmojiRef = useRef(null);
-      const rightEmojiRef = useRef(null);
-      
-      // Create a reusable audio context for haptic feedback
-      const audioContextRef = useRef(null);
-      
-      useEffect(() => {
-        // Initialize audio context on user interaction
-        const initAudio = () => {
-          if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-          }
-        };
-        document.addEventListener('touchstart', initAudio, { once: true });
-        return () => document.removeEventListener('touchstart', initAudio);
-      }, []);
+  const leftEmojiRef = useRef(null);
+  const rightEmojiRef = useRef(null);
+  const audioContextRef = useRef(null);
+  
+  const FRAME_MS = 1000 / 120; 
+  
+  const offsets = [
+    0,
+    FRAME_MS * 1,  -FRAME_MS * 1,
+    FRAME_MS * 2,  -FRAME_MS * 2,
+    FRAME_MS * 3,  -FRAME_MS * 3,
+    FRAME_MS * 4,  -FRAME_MS * 4,
+    FRAME_MS * 5,  -FRAME_MS * 5,
+    FRAME_MS * 6,  -FRAME_MS * 6,
+    FRAME_MS * 8,  -FRAME_MS * 8,
+    FRAME_MS * 10, -FRAME_MS * 10,
+    FRAME_MS * 12, -FRAME_MS * 12
+  ];
 
-      const timerRef = useRef(null);
-      const hasRespondedRef = useRef(false);
-      const flashEndTimeRef = useRef(0);
+  useEffect(() => {
+    const trialList = [...offsets].sort(() => Math.random() - 0.5);
+    setTrials(trialList);
+  }, []);
 
-      // Frame-perfect offsets for 120Hz displays  
-      const FRAME_MS = 1000 / 120; // 8.333... ms
-      
-      const offsets = [
-        0,              // 0 frames - simultaneous  
-        FRAME_MS * 1,   // 1 frame delay (8.333ms) - left first
-        -FRAME_MS * 1,  // 1 frame delay (8.333ms) - right first
-        FRAME_MS * 2,   // 2 frames delay (16.667ms) - left first
-        -FRAME_MS * 2,  // 2 frames delay (16.667ms) - right first
-        FRAME_MS * 3,   // 3 frames delay (25.000ms) - left first
-        -FRAME_MS * 3,  // 3 frames delay (25.000ms) - right first
-        FRAME_MS * 4,   // 4 frames delay (33.333ms) - left first
-        -FRAME_MS * 4,  // 4 frames delay (33.333ms) - right first
-        FRAME_MS * 5,   // 5 frames delay (41.667ms) - left first
-        -FRAME_MS * 5,  // 5 frames delay (41.667ms) - right first
-        FRAME_MS * 6,   // 6 frames delay (50.000ms) - left first
-        -FRAME_MS * 6, // 6 frames delay (50.000ms) - right first
-        FRAME_MS * 8,  -FRAME_MS * 8,  // ~66ms
-        FRAME_MS * 10, -FRAME_MS * 10, // ~83ms
-        FRAME_MS * 12, -FRAME_MS * 12  // ~100ms
-      ];
-
-      useEffect(() => {
-        const trialList = [...offsets].sort(() => Math.random() - 0.5);
-        setTrials(trialList);
-      }, []);
-
-      // Frame Rate Detection Logic - CONTINUOUS
-      useEffect(() => {
-        let frameCount = 0;
-        let startTime = performance.now();
-        let rafId;
-        
-        const checkFps = (now) => {
-          frameCount++;
-          const elapsed = now - startTime;
-          if (elapsed >= 1000) {
-            const currentFps = Math.round((frameCount * 1000) / elapsed);
-            setFps(currentFps);
-            setIs120Hz(currentFps > 100); // Threshold for ProMotion
-            
-            // Reset for continuous monitoring
-            frameCount = 0;
-            startTime = now;
-          }
-          rafId = requestAnimationFrame(checkFps);
-        };
-        
-        // Always run, not just on intro
-        rafId = requestAnimationFrame(checkFps);
-        
-        return () => cancelAnimationFrame(rafId);
-      }, []);
-
-      // Continuous animation loop to keep GPU active at 120Hz
-      useEffect(() => {
-        let rafId;
-        const animate = () => {
-          setAnimationOffset(prev => (prev + 8) % 360);
-          rafId = requestAnimationFrame(animate);
-        };
-        rafId = requestAnimationFrame(animate);
-        return () => cancelAnimationFrame(rafId);
-      }, []);
-
-      const playHaptic = () => {
-        if (navigator.vibrate) {
-          navigator.vibrate(10);
-        }
-        
-        if (audioContextRef.current && audioContextRef.current.state === 'running') {
-          try {
-            const oscillator = audioContextRef.current.createOscillator();
-            const gainNode = audioContextRef.current.createGain();
-            
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContextRef.current.destination);
-            
-            oscillator.frequency.value = 200;
-            gainNode.gain.setValueAtTime(0.1, audioContextRef.current.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContextRef.current.currentTime + 0.05);
-            
-            oscillator.start();
-            oscillator.stop(audioContextRef.current.currentTime + 0.05);
-          } catch (e) {
-            console.log('Audio feedback failed:', e);
-          }
-        }
-      };
-
-      const startTest = () => {
-        document.body.classList.add('no-scroll');
-        setPhase('waiting');
-        setCurrentTrial(-1);
-        setResults([]);
-        runTrial(-1);
-      };
-
-      const runTrial = (trialIndex) => {
-        const offset = trialIndex === -1 ? 0 : trials[trialIndex];
-        hasRespondedRef.current = false;
-        
-        if (timerRef.current) {
-          clearTimeout(timerRef.current);
-        }
-
-        setPhase('countdown');
-
-        setTimeout(() => {
-          setPhase('flash');
-          executeFlash(offset);
-        }, 500);
-      };
-
-      // Gaussian envelope helper: returns 0…1 amplitude for a pulse
-      // centred at tCentre with the given sigma (ms).
-      // The pulse is non-zero only within [tStart, tEnd].
-      const gaussEnvelope = (t, tStart, tEnd) => {
-        if (t <= tStart || t >= tEnd) return 0;
-        const dur   = tEnd - tStart;
-        const mid   = tStart + dur / 2;
-        const sigma = dur / 5;          // ~5σ covers the window; keeps edges near-zero
-        return Math.exp(-0.5 * Math.pow((t - mid) / sigma, 2));
-      };
-
-      // Lerp a single RGB channel between two values by weight 0…1
-      const lerpCh = (a, b, w) => Math.round(a + (b - a) * w);
-
-      const executeFlash = (offsetMs) => {
-        const startTime  = performance.now();
-        const FLASH_DURATION = 70;       // ms each pulse is "on"
-        const absOffset  = Math.abs(offsetMs);
-
-        // Co-terminating: both pulses end at the same moment.
-        //   First  pulse envelope : [0,            absOffset + FLASH_DURATION]
-        //   Second pulse envelope : [absOffset,   absOffset + FLASH_DURATION]
-        const firstStart  = 0;
-        const firstEnd    = absOffset + FLASH_DURATION;
-        const secondStart = absOffset;
-        const secondEnd   = absOffset + FLASH_DURATION;
-
-        const firstRef  = offsetMs >= 0 ? leftEmojiRef  : rightEmojiRef;
-        const secondRef = offsetMs >= 0 ? rightEmojiRef : leftEmojiRef;
-
-        // Grab the current bg / pulse RGB from state (captured once per trial)
-        const bgR = yellowR, bgG = yellowG, bgB = yellowB;
-        const puR = blueR,   puG = blueG,   puB = blueB;
-
-        const animate = (now) => {
-          const elapsed = now - startTime;
-
-          // --- compute Gaussian weight for each pulse ---
-          const w1 = gaussEnvelope(elapsed, firstStart,  firstEnd);
-          const w2 = gaussEnvelope(elapsed, secondStart, secondEnd);
-
-          // --- write interpolated colour directly (no opacity change) ---
-          if (firstRef.current) {
-            firstRef.current.style.backgroundColor =
-              'rgb(' + lerpCh(bgR,puR,w1) + ',' + lerpCh(bgG,puG,w1) + ',' + lerpCh(bgB,puB,w1) + ')';
-          }
-          if (secondRef.current) {
-            secondRef.current.style.backgroundColor =
-              'rgb(' + lerpCh(bgR,puR,w2) + ',' + lerpCh(bgG,puG,w2) + ',' + lerpCh(bgB,puB,w2) + ')';
-          }
-
-          // --- done: both envelopes back to zero, hand off ---
-          if (elapsed >= firstEnd) {
-            // Snap both back to background colour (should already be there)
-            const bgStr = 'rgb(' + bgR + ',' + bgG + ',' + bgB + ')';
-            if (leftEmojiRef.current)  leftEmojiRef.current.style.backgroundColor  = bgStr;
-            if (rightEmojiRef.current) rightEmojiRef.current.style.backgroundColor = bgStr;
-
-            flashEndTimeRef.current = performance.now();
-            setPhase('response');
-            playHaptic();
-            return;
-          }
-
-          requestAnimationFrame(animate);
-        };
-
-        requestAnimationFrame(animate);
-      };
-
-      const handleResponse = (response) => {
-        if (hasRespondedRef.current || phase !== 'response') return;
-        
-        hasRespondedRef.current = true;
-        playHaptic();
-        
-        const reactionTime = Math.round(performance.now() - flashEndTimeRef.current);
-        const offset = currentTrial === -1 ? 0 : trials[currentTrial];
-        
-        const result = {
-          trial: currentTrial === -1 ? 'Practice' : currentTrial + 1,
-          offset: offset.toFixed(3),
-          response: response,
-          reactionTime: reactionTime,
-          fps: fps,
-          timestamp: new Date().toISOString()
-        };
-
-        if (currentTrial === -1) {
-          setTimeout(() => runTrial(0), 500);
-          setCurrentTrial(0);
-        } else {
-          setResults(prev => [...prev, result]);
-          
-          if (currentTrial < trials.length - 1) {
-            setTimeout(() => runTrial(currentTrial + 1), 500);
-            setCurrentTrial(prev => prev + 1);
-          } else {
-            setPhase('complete');
-            document.body.classList.remove('no-scroll');
-          }
-        }
-      };
-
-      // Intro screen with RGB inputs
-      if (phase === 'intro') {
-        const yellowColor = `rgb(${yellowR}, ${yellowG}, ${yellowB})`;
-        const blueColor = `rgb(${blueR}, ${blueG}, ${blueB})`;
-        
-        return (
-          <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white p-6">
-            <div className="max-w-2xl w-full">
-              <h1 className="text-4xl font-bold mb-4 text-center">Synchrony Perception Test</h1>
-              
-              <div className={`mb-6 p-4 rounded-lg text-center ${is120Hz ? 'bg-green-900/30 border-2 border-green-500' : 'bg-red-900/30 border-2 border-red-500'}`}>
-                <p className="text-lg font-bold mb-1">Display: {fps}Hz</p>
-                {is120Hz ? (
-                  <p className="text-green-400">✓ High refresh rate detected</p>
-                ) : (
-                  <p className="text-red-400">⚠ 120Hz display recommended for accurate results</p>
-                )}
-              </div>
-
-              {/* Color Configuration */}
-              <div className="bg-gray-800/50 p-6 rounded-lg mb-6 space-y-6">
-                <h2 className="text-xl font-bold mb-4">Color Settings</h2>
-                
-                {/* Yellow Background RGB */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="font-semibold">Yellow Background</label>
-                    <div className="w-16 h-8 rounded border-2 border-gray-600" style={{ backgroundColor: yellowColor }}></div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="text-sm text-gray-400">R</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="255"
-                        value={yellowR}
-                        onChange={(e) => setYellowR(Math.max(0, Math.min(255, parseInt(e.target.value) || 0)))}
-                        className="w-full bg-gray-700 text-white px-3 py-2 rounded"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm text-gray-400">G</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="255"
-                        value={yellowG}
-                        onChange={(e) => setYellowG(Math.max(0, Math.min(255, parseInt(e.target.value) || 0)))}
-                        className="w-full bg-gray-700 text-white px-3 py-2 rounded"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm text-gray-400">B</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="255"
-                        value={yellowB}
-                        onChange={(e) => setYellowB(Math.max(0, Math.min(255, parseInt(e.target.value) || 0)))}
-                        className="w-full bg-gray-700 text-white px-3 py-2 rounded"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Blue Pulse RGB */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="font-semibold">Blue Pulse</label>
-                    <div className="w-16 h-8 rounded border-2 border-gray-600" style={{ backgroundColor: blueColor }}></div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="text-sm text-gray-400">R</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="255"
-                        value={blueR}
-                        onChange={(e) => setBlueR(Math.max(0, Math.min(255, parseInt(e.target.value) || 0)))}
-                        className="w-full bg-gray-700 text-white px-3 py-2 rounded"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm text-gray-400">G</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="255"
-                        value={blueG}
-                        onChange={(e) => setBlueG(Math.max(0, Math.min(255, parseInt(e.target.value) || 0)))}
-                        className="w-full bg-gray-700 text-white px-3 py-2 rounded"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm text-gray-400">B</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="255"
-                        value={blueB}
-                        onChange={(e) => setBlueB(Math.max(0, Math.min(255, parseInt(e.target.value) || 0)))}
-                        className="w-full bg-gray-700 text-white px-3 py-2 rounded"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-gray-800/50 p-4 rounded-lg mb-4">
-                <p className="font-bold mb-2">Your task:</p>
-                <p className="mb-3">Two blue circles will pulse on a yellow background. Report whether they appeared at the same time or if one appeared first.</p>
-              </div>
-              
-              <div className="bg-gray-800/50 p-4 rounded-lg mb-4 space-y-1">
-                <p><span className="text-blue-400 font-bold">SAME</span> = They appeared at the same time</p>
-                <p><span className="text-yellow-400 font-bold">LEFT</span> = Left appeared first</p>
-                <p><span className="text-green-400 font-bold">RIGHT</span> = Right appeared first</p>
-              </div>
-              
-              <div className="bg-gray-800/50 p-4 rounded-lg mb-6 text-sm space-y-2">
-                <p>• Hold device vertically (portrait mode)</p>
-                <p>• Three buttons: LEFT, SAME, RIGHT</p>
-                <p>• Respond quickly when buttons light up</p>
-              </div>
-              
-              <p className="text-gray-400 text-sm mb-6">1 practice trial + 13 test trials</p>
-              
-              <button
-                onClick={startTest}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 rounded-xl text-xl transition-all active:scale-95"
-              >
-                Start Test
-              </button>
-            </div>
-          </div>
-        );
+  useEffect(() => {
+    let frameCount = 0;
+    let startTime = performance.now();
+    let rafId;
+    const checkFps = (now) => {
+      frameCount++;
+      const elapsed = now - startTime;
+      if (elapsed >= 1000) {
+        const currentFps = Math.round((frameCount * 1000) / elapsed);
+        setFps(currentFps);
+        setIs120Hz(currentFps > 100);
+        frameCount = 0;
+        startTime = now;
       }
+      rafId = requestAnimationFrame(checkFps);
+    };
+    rafId = requestAnimationFrame(checkFps);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
 
-      // Results screen
-      if (phase === 'complete') {
-        const csvDetails = ['Trial,Offset_ms,Response,ReactionTime_ms,FPS,Timestamp'];
-        results.forEach(r => {
-          csvDetails.push(`${r.trial},${r.offset},${r.response},${r.reactionTime},${r.fps},${r.timestamp}`);
-        });
-        const csvText = csvDetails.join('\n');
+  useEffect(() => {
+    let rafId;
+    const animate = () => {
+      setAnimationOffset(prev => (prev + 8) % 360);
+      rafId = requestAnimationFrame(animate);
+    };
+    rafId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
 
-        const uniqueOffsets = [0, 8.333, 16.667, 25.0, 33.333, 41.667, 50.0, 66.667, 83.333, 100.0 ];
-        const summaryData = uniqueOffsets.map(absOffset => {
-          const offsetResults = results.filter(r => Math.abs(Math.abs(r.offset) - absOffset) < 0.01);
-          const sameCount = offsetResults.filter(r => r.response === 'Same').length;
-          const proportion = offsetResults.length > 0 ? sameCount / offsetResults.length : 0;
-          return {
-            offset: absOffset,
-            percentage: Math.round(proportion * 100),
-            count: sameCount,
-            total: offsetResults.length
-          };
-        });
-
-        return (
-          <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-8">
-            <div className="max-w-4xl w-full">
-              <h1 className="text-3xl font-bold mb-8 text-center">Test Complete!</h1>
-              
-              <div className="bg-gray-800 rounded-lg p-6 mb-6">
-                <h2 className="text-xl font-bold mb-4">Synchrony Perception</h2>
-                <p className="text-sm text-gray-400 mb-4">Percentage of trials judged as "SAME" vs absolute offset (ms)</p>
-                <div className="space-y-3">
-                  {summaryData.map(data => (
-                    <div key={data.offset} className="flex items-center gap-3">
-                      <div className="w-16 text-right text-sm font-mono">{data.offset.toFixed(1)}ms</div>
-                      <div className="flex-1 bg-gray-700 rounded-full h-8 relative overflow-hidden">
-                        <div 
-                          className="bg-blue-500 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${data.percentage}%` }}
-                        />
-                        <div className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white">
-                          {data.percentage}%
-                        </div>
-                      </div>
-                      <div className="w-16 text-left text-xs text-gray-400">
-                        {data.count}/{data.total}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              
-              <div className="bg-gray-800 rounded-lg p-6 mb-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-xl font-bold">Trial Data (CSV)</h2>
-                  <button
-                    onClick={() => {
-                      const blob = new Blob([csvText], { type: 'text/csv' });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `synchrony-test-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`;
-                      a.click();
-                      URL.revokeObjectURL(url);
-                    }}
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-                  >
-                    Download CSV
-                  </button>
-                </div>
-                <textarea
-                  readOnly
-                  value={csvText}
-                  className="w-full h-64 bg-gray-900 text-green-400 font-mono text-sm p-4 rounded border border-gray-700 focus:outline-none focus:border-blue-500"
-                  onClick={(e) => e.target.select()}
-                />
-                <p className="mt-2 text-sm text-gray-400">Click inside the box to select all, then Ctrl+C (or Cmd+C) to copy</p>
-              </div>
-            </div>
-          </div>
-        );
-      }
-
-      // Trial display
-      const yellowColor = `rgb(${yellowR}, ${yellowG}, ${yellowB})`;
-      const blueColor = `rgb(${blueR}, ${blueG}, ${blueB})`;
-      const borderColor = `rgb(${Math.max(0, yellowR - 40)}, ${Math.max(0, yellowG - 40)}, ${Math.max(0, yellowB - 40)})`;
-      
-      return (
-        <div className="flex flex-col items-center justify-start pt-20 min-h-screen text-white select-none touch-none" style={{ willChange: 'transform', backgroundColor: yellowColor }}>
-          
-          <div className="fixed top-4 right-4 z-50">
-            <div className={`px-3 py-1 rounded-full text-xs font-mono ${is120Hz ? 'bg-green-900/80 text-green-400' : 'bg-red-900/80 text-red-400'}`}>
-              {fps}Hz
-            </div>
-          </div>
-
-          <div className="fixed bottom-2 left-1/2 transform -translate-x-1/2 flex gap-1 opacity-20 pointer-events-none">
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className="w-1 h-1 rounded-full bg-blue-500"
-                style={{
-                  transform: `translateY(${Math.sin((animationOffset + i * 120) * Math.PI / 180) * 3}px) translateZ(0)`,
-                  willChange: 'transform'
-                }}
-              />
-            ))}
-          </div>
-
-          <div className="mb-8 text-xl font-bold" style={{ color: '#ffffff' }}>
-            {currentTrial === -1 ? (
-              <span>Practice Trial</span>
-            ) : (
-              `Trial ${currentTrial + 1} of ${trials.length}`
-            )}
-          </div>
-
-// Change w-40 h-40 to w-64 h-64 and w-36 h-36 to w-56 h-56
-<div className="flex gap-8 items-center justify-center mb-12" style={{ height: '300px' }}>
-  <div className="w-64 h-64 flex items-center justify-center rounded-full" style={{ backgroundColor: yellowColor, willChange: 'transform' }}>
-    <div ref={leftEmojiRef} className="w-56 h-56 rounded-full" style={{ backgroundColor: yellowColor, filter: 'blur(30px)', ... }}></div>
-  </div>
-  <div className="w-64 h-64 flex items-center justify-center rounded-full" style={{ backgroundColor: yellowColor, willChange: 'transform' }}>
-    <div ref={rightEmojiRef} className="w-56 h-56 rounded-full" style={{ backgroundColor: yellowColor, filter: 'blur(30px)', ... }}></div>
-  </div>
-</div>
-
-          <div className="h-20 mb-4 flex items-center justify-center">
-            <div className="flex flex-row gap-3 px-4">
-              <button 
-                onPointerDown={() => handleResponse('Left')}
-                disabled={phase !== 'response'}
-                style={{ backgroundColor: '#888888' }}
-                className="text-white font-bold py-3 px-6 rounded-lg text-lg shadow-lg disabled:cursor-not-allowed">
-                LEFT
-              </button>
-              <button 
-                onPointerDown={() => handleResponse('Same')}
-                disabled={phase !== 'response'}
-                style={{ backgroundColor: '#888888' }}
-                className="text-white font-bold py-3 px-6 rounded-lg text-lg shadow-lg disabled:cursor-not-allowed">
-                SAME
-              </button>
-              <button 
-                onPointerDown={() => handleResponse('Right')}
-                disabled={phase !== 'response'}
-                style={{ backgroundColor: '#888888' }}
-                className="text-white font-bold py-3 px-6 rounded-lg text-lg shadow-lg disabled:cursor-not-allowed">
-                RIGHT
-              </button>
-            </div>
-          </div>
-
-          <div className="h-8"></div>
-        </div>
-      );
+  const playHaptic = () => {
+    if (navigator.vibrate) navigator.vibrate(10);
+    if (audioContextRef.current && audioContextRef.current.state === 'running') {
+      const osc = audioContextRef.current.createOscillator();
+      const gain = audioContextRef.current.createGain();
+      osc.connect(gain);
+      gain.connect(audioContextRef.current.destination);
+      osc.frequency.value = 200;
+      gain.gain.setValueAtTime(0.1, audioContextRef.current.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioContextRef.current.currentTime + 0.05);
+      osc.start();
+      osc.stop(audioContextRef.current.currentTime + 0.05);
     }
+  };
 
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<SynchronyTest />);
+  const startTest = () => {
+    if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    document.body.classList.add('no-scroll');
+    setPhase('waiting');
+    setCurrentTrial(-1);
+    setResults([]);
+    runTrial(-1);
+  };
+
+  const runTrial = (trialIndex) => {
+    const offset = trialIndex === -1 ? 0 : trials[trialIndex];
+    setPhase('countdown');
+    setTimeout(() => {
+      setPhase('flash');
+      executeFlash(offset);
+    }, 500);
+  };
+
+  const gaussEnvelope = (t, tStart, tEnd) => {
+    if (t <= tStart || t >= tEnd) return 0;
+    const dur = tEnd - tStart;
+    const mid = tStart + dur / 2;
+    const sigma = dur / 5;
+    return Math.exp(-0.5 * Math.pow((t - mid) / sigma, 2));
+  };
+
+  const lerpCh = (a, b, w) => Math.round(a + (b - a) * w);
+
+  const executeFlash = (offsetMs) => {
+    const startTime = performance.now();
+    const FLASH_DURATION = 70;
+    const absOffset = Math.abs(offsetMs);
+    const firstEnd = absOffset + FLASH_DURATION;
+    const firstRef = offsetMs >= 0 ? leftEmojiRef : rightEmojiRef;
+    const secondRef = offsetMs >= 0 ? rightEmojiRef : leftEmojiRef;
+
+    const animate = (now) => {
+      const elapsed = now - startTime;
+      const w1 = gaussEnvelope(elapsed, 0, absOffset + FLASH_DURATION);
+      const w2 = gaussEnvelope(elapsed, absOffset, absOffset + FLASH_DURATION);
+
+      if (firstRef.current) firstRef.current.style.backgroundColor = `rgb(${lerpCh(yellowR,blueR,w1)},${lerpCh(yellowG,blueG,w1)},${lerpCh(yellowB,blueB,w1)})`;
+      if (secondRef.current) secondRef.current.style.backgroundColor = `rgb(${lerpCh(yellowR,blueR,w2)},${lerpCh(yellowG,blueG,w2)},${lerpCh(yellowB,blueB,w2)})`;
+
+      if (elapsed >= firstEnd) {
+        const bgStr = `rgb(${yellowR},${yellowG},${yellowB})`;
+        if (leftEmojiRef.current) leftEmojiRef.current.style.backgroundColor = bgStr;
+        if (rightEmojiRef.current) rightEmojiRef.current.style.backgroundColor = bgStr;
+        setPhase('response');
+        playHaptic();
+        return;
+      }
+      requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+  };
+
+  const handleResponse = (response) => {
+    const offset = currentTrial === -1 ? 0 : trials[currentTrial];
+    const result = {
+      trial: currentTrial === -1 ? 'Practice' : currentTrial + 1,
+      offset: offset.toFixed(3),
+      response: response,
+      fps: fps,
+      timestamp: new Date().toISOString()
+    };
+
+    if (currentTrial === -1) {
+      setCurrentTrial(0);
+      runTrial(0);
+    } else {
+      setResults(prev => [...prev, result]);
+      if (currentTrial < trials.length - 1) {
+        setCurrentTrial(prev => prev + 1);
+        runTrial(currentTrial + 1);
+      } else {
+        setPhase('complete');
+        document.body.classList.remove('no-scroll');
+      }
+    }
+  };
+
+  if (phase === 'intro') {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white p-6">
+        <div className="max-w-2xl w-full">
+          <h1 className="text-4xl font-bold mb-4 text-center">Synchrony Perception Test</h1>
+          <div className={`mb-6 p-4 rounded-lg text-center ${is120Hz ? 'bg-green-900/30' : 'bg-red-900/30'}`}>
+            <p className="text-lg font-bold">Display: {fps}Hz</p>
+          </div>
+          <button onClick={startTest} className="w-full bg-blue-600 py-4 rounded-xl text-xl font-bold">Start Test</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === 'complete') {
+    const csvText = "Trial,Offset_ms,Response,FPS,Timestamp\n" + results.map(r => `${r.trial},${r.offset},${r.response},${r.fps},${r.timestamp}`).join('\n');
+    const uniqueOffsets = [0, 8.333, 16.667, 25.0, 33.333, 41.667, 50.0, 66.667, 83.333, 100.0];
+    
+    return (
+      <div className="min-h-screen bg-gray-900 text-white p-8">
+        <h1 className="text-3xl font-bold mb-8">Results Summary</h1>
+        <div className="space-y-4 bg-gray-800 p-6 rounded-xl">
+          {uniqueOffsets.map(val => {
+            const matches = results.filter(r => Math.abs(Math.abs(parseFloat(r.offset)) - val) < 1);
+            const same = matches.filter(r => r.response === 'Same').length;
+            const pct = matches.length ? Math.round((same / matches.length) * 100) : 0;
+            return (
+              <div key={val} className="flex items-center gap-4">
+                <div className="w-20 font-mono">{val.toFixed(1)}ms</div>
+                <div className="flex-1 bg-gray-700 h-6 rounded-full overflow-hidden">
+                  <div className="bg-blue-500 h-full" style={{ width: `${pct}%` }}></div>
+                </div>
+                <div className="w-12 text-sm">{pct}%</div>
+              </div>
+            );
+          })}
+        </div>
+        <textarea readOnly value={csvText} className="w-full h-40 mt-8 bg-black p-4 font-mono text-xs" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-start pt-20 min-h-screen" style={{ backgroundColor: `rgb(${yellowR},${yellowG},${yellowB})` }}>
+      <div className="mb-12 flex gap-8">
+        <div className="w-64 h-64 rounded-full flex items-center justify-center bg-transparent">
+          <div ref={leftEmojiRef} className="w-56 h-56 rounded-full" style={{ filter: 'blur(30px)' }}></div>
+        </div>
+        <div className="w-64 h-64 rounded-full flex items-center justify-center bg-transparent">
+          <div ref={rightEmojiRef} className="w-56 h-56 rounded-full" style={{ filter: 'blur(30px)' }}></div>
+        </div>
+      </div>
+      <div className="flex gap-4">
+        {['Left', 'Same', 'Right'].map(btn => (
+          <button key={btn} onPointerDown={() => handleResponse(btn)} disabled={phase !== 'response'} className="bg-gray-500 px-8 py-4 rounded-xl font-bold text-white disabled:opacity-30">
+            {btn.toUpperCase()}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<SynchronyTest />);
   </script>
 </body>
 </html>
