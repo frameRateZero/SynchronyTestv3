@@ -105,6 +105,7 @@ const { useState, useEffect, useRef } = React;
 
       const [yellowVal, setYellowVal] = useState(90); 
       const [isCalibrating, setIsCalibrating] = useState(false);
+      const [detectedFps, setDetectedFps] = useState(0);
 
       const leftEmojiRef = useRef(null);
       const rightEmojiRef = useRef(null);
@@ -113,8 +114,25 @@ const { useState, useEffect, useRef } = React;
       const flashEndTimeRef = useRef(0);
       const currentSideRef = useRef(1); 
 
+      // Standardizing to your 120Hz baseline, but logging the reality
       const FRAME_MS = 1000 / 120; 
       const PULSE_WIDTH = 200; 
+
+      useEffect(() => {
+        let frameCount = 0;
+        let startTime = performance.now();
+        const check = (now) => {
+          frameCount++;
+          if (now - startTime >= 1000) {
+            setDetectedFps(Math.round((frameCount * 1000) / (now - startTime)));
+            frameCount = 0;
+            startTime = now;
+          }
+          requestAnimationFrame(check);
+        };
+        const raf = requestAnimationFrame(check);
+        return () => cancelAnimationFrame(raf);
+      }, []);
 
       useEffect(() => {
         let rafId;
@@ -174,7 +192,7 @@ const { useState, useEffect, useRef } = React;
           if (secondRef.current) secondRef.current.style.background = getPulseStyle(w2);
 
           if (elapsed >= absOffset + 300) {
-            flashEndTimeRef.current = performance.now(); // Mark for RT calculation
+            flashEndTimeRef.current = performance.now();
             setPhase('response');
             return;
           }
@@ -232,7 +250,12 @@ const { useState, useEffect, useRef } = React;
         return (
           <div className="flex items-center justify-center min-h-[100dvh] bg-gray-950 text-white p-6">
             <div className="max-w-md w-full text-center space-y-6">
-              <h1 className="text-3xl font-black italic tracking-tighter">K-DOT STARECASE v2</h1>
+              <div>
+                <h1 className="text-3xl font-black italic tracking-tighter">K-DOT STAIRCASE v2</h1>
+                <p className={`text-[10px] font-mono mt-1 uppercase tracking-widest ${detectedFps >= 100 ? 'text-green-400' : 'text-yellow-500'}`}>
+                  {detectedFps ? `Display: ${detectedFps}Hz` : "Syncing Hardware..."}
+                </p>
+              </div>
               
               <div className="bg-gray-900 p-6 rounded-3xl space-y-4 border border-white/10">
                 <div ref={leftEmojiRef} className="w-24 h-24 mx-auto rounded-full" style={{background: `rgb(${yellowVal},${yellowVal},0)`}}></div>
@@ -248,7 +271,12 @@ const { useState, useEffect, useRef } = React;
                 <div className="text-[10px] font-mono text-gray-500">YELLOW TARGET: {yellowVal}</div>
               </div>
 
-              <button onClick={() => {if (!audioContextRef.current) audioContextRef.current = new AudioContext(); runTrial(currentStep);}} className="w-full bg-white text-black py-5 rounded-3xl font-black text-xl shadow-xl">BEGIN SESSION</button>
+              <button 
+                disabled={!detectedFps}
+                onClick={() => {if (!audioContextRef.current) audioContextRef.current = new AudioContext(); runTrial(currentStep);}} 
+                className={`w-full py-5 rounded-3xl font-black text-xl shadow-xl transition-all ${!detectedFps ? 'bg-gray-800 text-gray-600' : 'bg-white text-black active:scale-95'}`}>
+                BEGIN SESSION
+              </button>
             </div>
           </div>
         );
@@ -281,8 +309,8 @@ const { useState, useEffect, useRef } = React;
 
             <button onClick={() => {
                 const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-                const csvHeader = "Trial,Actual_Offset_ms,Frames,Response,Is_Correct,Response_Time_ms,Yellow_Val\n";
-                const csvBody = results.map(r => `${r.trial},${r.offsetMs},${r.signedFrames},${r.response},${r.isCorrect},${r.rt},${yellowVal}`).join('\n');
+                const csvHeader = `Trial,Offset_ms,Frames,Response,Is_Correct,RT_ms,Yellow_Val,Hardware_FPS\n`;
+                const csvBody = results.map(r => `${r.trial},${r.offsetMs},${r.signedFrames},${r.response},${r.isCorrect},${r.rt},${yellowVal},${detectedFps}`).join('\n');
                 const blob = new Blob([csvHeader + csvBody], { type: 'text/csv' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
