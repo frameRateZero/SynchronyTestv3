@@ -97,137 +97,68 @@ const { useState, useEffect, useRef } = React;
 
     function SynchronyTest() {
       const [phase, setPhase] = useState('intro');
-      const [fps, setFps] = useState(0);
-      const [is120Hz, setIs120Hz] = useState(false);
-      const [currentTrial, setCurrentTrial] = useState(-1);
       const [results, setResults] = useState([]);
-      const [trials, setTrials] = useState([]);
-      
-      const [yellowR, setYellowR] = useState(255);
-      const [yellowG, setYellowG] = useState(215);
-      const [yellowB, setYellowB] = useState(0);
-      const [blueR, setBlueR] = useState(85);
-      const [blueG, setBlueG] = useState(85);
-      const [blueB, setBlueB] = useState(255);
+      const [currentStep, setCurrentStep] = useState(12); // Start at ~100ms (12 frames)
+      const [consecutiveCorrect, setConsecutiveCorrect] = useState(0);
+      const [trialCount, setTrialCount] = useState(0);
+      const MAX_TRIALS = 40;
+
+      const [yellowVal, setYellowVal] = useState(120); 
+      const [isCalibrating, setIsCalibrating] = useState(false);
 
       const leftEmojiRef = useRef(null);
       const rightEmojiRef = useRef(null);
       const audioContextRef = useRef(null);
       const hasRespondedRef = useRef(false);
       const flashEndTimeRef = useRef(0);
+      const currentSideRef = useRef(1); // 1 = Left first, -1 = Right first
 
-      const FRAME_MS = 1000 / 120; 
-      
-      const offsets = [
-        0,
-        FRAME_MS * 1,  -FRAME_MS * 1,
-        FRAME_MS * 2,  -FRAME_MS * 2,
-        FRAME_MS * 3,  -FRAME_MS * 3,
-        FRAME_MS * 4,  -FRAME_MS * 4,
-        FRAME_MS * 5,  -FRAME_MS * 5,
-        FRAME_MS * 6,  -FRAME_MS * 6,
-        FRAME_MS * 8,  -FRAME_MS * 8,
-        FRAME_MS * 10, -FRAME_MS * 10,
-        FRAME_MS * 12, -FRAME_MS * 12
-      ];
-
-      useEffect(() => {
-        const trialList = [...offsets].sort(() => Math.random() - 0.5);
-        setTrials(trialList);
-      }, []);
-
-      useEffect(() => {
-        let frameCount = 0;
-        let startTime = performance.now();
-        let rafId;
-        const checkFps = (now) => {
-          frameCount++;
-          const elapsed = now - startTime;
-          if (elapsed >= 1000) {
-            const currentFps = Math.round((frameCount * 1000) / elapsed);
-            setFps(currentFps);
-            setIs120Hz(currentFps > 100);
-            frameCount = 0;
-            startTime = now;
-          }
-          rafId = requestAnimationFrame(checkFps);
-        };
-        rafId = requestAnimationFrame(checkFps);
-        return () => cancelAnimationFrame(rafId);
-      }, []);
+      const FRAME_MS = 8.333; // 120Hz
 
       const playHaptic = () => {
         if (navigator.vibrate) navigator.vibrate(15);
-        if (audioContextRef.current && audioContextRef.current.state === 'running') {
+        if (audioContextRef.current?.state === 'running') {
           const osc = audioContextRef.current.createOscillator();
           const gain = audioContextRef.current.createGain();
-          osc.connect(gain);
-          gain.connect(audioContextRef.current.destination);
+          osc.connect(gain); gain.connect(audioContextRef.current.destination);
           osc.frequency.setValueAtTime(150, audioContextRef.current.currentTime);
-          gain.gain.setValueAtTime(0.1, audioContextRef.current.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, audioContextRef.current.currentTime + 0.1);
-          osc.start();
-          osc.stop(audioContextRef.current.currentTime + 0.1);
+          gain.gain.setValueAtTime(0.05, audioContextRef.current.currentTime);
+          osc.start(); osc.stop(audioContextRef.current.currentTime + 0.1);
         }
       };
 
-      const startTest = () => {
-        if (!audioContextRef.current) {
-          audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        document.body.classList.add('no-scroll');
-        setPhase('waiting');
-        setCurrentTrial(-1);
-        setResults([]);
-        runTrial(-1);
-      };
-
-      const runTrial = (trialIndex) => {
-        const offset = trialIndex === -1 ? 0 : trials[trialIndex];
+      const runTrial = (step) => {
         hasRespondedRef.current = false;
+        currentSideRef.current = Math.random() > 0.5 ? 1 : -1;
+        const offset = step * FRAME_MS * currentSideRef.current;
         setPhase('countdown');
         setTimeout(() => {
           setPhase('flash');
           executeFlash(offset);
-        }, 600);
+        }, 800);
       };
 
-      const gaussPulse = (t, center, width) => {
-        const sigma = width / 5;
-        return Math.exp(-0.5 * Math.pow((t - center) / sigma, 2));
-      };
-
-      // Helper to generate the gradient string based on current weight
       const getPulseStyle = (w) => {
-        const r = Math.round(yellowR + (blueR - yellowR) * w);
-        const g = Math.round(yellowG + (blueG - yellowG) * w);
-        const b = Math.round(yellowB + (blueB - yellowB) * w);
-        const colorStr = `rgb(${r},${g},${b})`;
-        const yellowStr = `rgb(${yellowR},${yellowG},${yellowB})`;
-        // Radial gradient creates a soft edge without the "blur" filter square artifacts
-        return `radial-gradient(circle, ${colorStr} 0%, ${yellowStr} 70%)`;
+        const r = Math.round(yellowVal + (0 - yellowVal) * w);
+        const g = Math.round(yellowVal + (0 - yellowVal) * w);
+        const b = Math.round(0 + (255 - 0) * w);
+        return `radial-gradient(circle, rgb(${r},${g},${b}) 0%, rgb(${yellowVal},${yellowVal},0) 75%)`;
       };
 
       const executeFlash = (offsetMs) => {
         const startTime = performance.now();
-        const DURATION = 100; 
+        const DURATION = 100;
         const absOffset = Math.abs(offsetMs);
-        const totalWindow = absOffset + DURATION;
         const firstRef = offsetMs >= 0 ? leftEmojiRef : rightEmojiRef;
         const secondRef = offsetMs >= 0 ? rightEmojiRef : leftEmojiRef;
 
         const animate = (now) => {
           const elapsed = now - startTime;
-          const w1 = gaussPulse(elapsed, DURATION / 2, DURATION);
-          const w2 = gaussPulse(elapsed, absOffset + (DURATION / 2), DURATION);
-
+          const w1 = Math.exp(-0.5 * Math.pow((elapsed - 50) / 20, 2));
+          const w2 = Math.exp(-0.5 * Math.pow((elapsed - (absOffset + 50)) / 20, 2));
           if (firstRef.current) firstRef.current.style.background = getPulseStyle(w1);
           if (secondRef.current) secondRef.current.style.background = getPulseStyle(w2);
-
-          if (elapsed >= totalWindow + (DURATION / 2)) {
-            const resetStyle = getPulseStyle(0);
-            if (leftEmojiRef.current) leftEmojiRef.current.style.background = resetStyle;
-            if (rightEmojiRef.current) rightEmojiRef.current.style.background = resetStyle;
+          if (elapsed >= absOffset + 150) {
             flashEndTimeRef.current = performance.now();
             setPhase('response');
             return;
@@ -241,121 +172,85 @@ const { useState, useEffect, useRef } = React;
         if (hasRespondedRef.current || phase !== 'response') return;
         hasRespondedRef.current = true;
         playHaptic();
-        
-        const reactionTime = Math.round(performance.now() - flashEndTimeRef.current);
-        const offset = currentTrial === -1 ? 0 : trials[currentTrial];
-        
-        const result = {
-          trial: currentTrial === -1 ? 'Practice' : currentTrial + 1,
-          offset: offset.toFixed(3),
-          response: response,
-          reactionTime: reactionTime,
-          fps: fps,
-          timestamp: new Date().toISOString()
-        };
 
-        if (currentTrial === -1) {
-          setTimeout(() => runTrial(0), 500);
-          setCurrentTrial(0);
-        } else {
-          setResults(prev => [...prev, result]);
-          if (currentTrial < trials.length - 1) {
-            setTimeout(() => runTrial(currentTrial + 1), 500);
-            setCurrentTrial(prev => prev + 1);
+        // Check if the response matches the temporal order
+        // For K-pathway staircase, we test "Which side was first?"
+        const correctSide = currentSideRef.current === 1 ? 'Left' : 'Right';
+        const isCorrect = response === correctSide;
+
+        let nextStep = currentStep;
+        let nextConsecutive = 0;
+
+        if (isCorrect) {
+          if (consecutiveCorrect + 1 === 2) {
+            nextStep = Math.max(0.5, currentStep - 1); // 2 down
+            nextConsecutive = 0;
           } else {
-            setPhase('complete');
-            document.body.classList.remove('no-scroll');
+            nextConsecutive = 1;
           }
+        } else {
+          nextStep = currentStep + 1; // 1 up
+          nextConsecutive = 0;
+        }
+
+        const result = { trial: trialCount + 1, offset: (currentStep * FRAME_MS).toFixed(2), isCorrect };
+        setResults(prev => [...prev, result]);
+        
+        if (trialCount + 1 < MAX_TRIALS) {
+          setTrialCount(prev => prev + 1);
+          setCurrentStep(nextStep);
+          setConsecutiveCorrect(nextConsecutive);
+          setTimeout(() => runTrial(nextStep), 600);
+        } else {
+          setPhase('complete');
         }
       };
 
       if (phase === 'intro') {
         return (
           <div className="flex items-center justify-center min-h-[100dvh] bg-gray-900 text-white p-6">
-            <div className="max-w-2xl w-full text-center">
-              <h1 className="text-3xl font-bold mb-6">Synchrony Test</h1>
-              <div className="bg-gray-800 p-6 rounded-2xl mb-6 space-y-4">
-                <div className="text-xs text-gray-400 uppercase tracking-tighter">Background / Pulse Colors</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {[yellowR,yellowG,yellowB].map((v,i) => (
-                    <input key={i} type="number" value={v} onChange={e => {
-                      const val = parseInt(e.target.value)||0;
-                      if(i==0)setYellowR(val); if(i==1)setYellowG(val); if(i==2)setYellowB(val);
-                    }} className="bg-gray-700 p-3 rounded-lg text-center" />
-                  ))}
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {[blueR,blueG,blueB].map((v,i) => (
-                    <input key={i} type="number" value={v} onChange={e => {
-                      const val = parseInt(e.target.value)||0;
-                      if(i==0)setBlueR(val); if(i==1)setBlueG(val); if(i==2)setBlueB(val);
-                    }} className="bg-gray-700 p-3 rounded-lg text-center" />
-                  ))}
-                </div>
+            <div className="max-w-md w-full text-center space-y-6">
+              <h1 className="text-3xl font-bold">Staircase K-Test</h1>
+              <div className="bg-gray-800 p-6 rounded-2xl space-y-4">
+                <div ref={leftEmojiRef} className="w-24 h-24 mx-auto rounded-full" style={{background: `rgb(${yellowVal},${yellowVal},0)`}}></div>
+                <button onPointerDown={() => setIsCalibrating(!isCalibrating)} className="w-full bg-gray-700 py-3 rounded-xl font-bold">
+                  {isCalibrating ? "STOP" : "CALIBRATE"}
+                </button>
+                <input type="range" min="50" max="200" value={yellowVal} onChange={e => setYellowVal(parseInt(e.target.value))} className="w-full" />
               </div>
-              <button onClick={startTest} className="w-full bg-blue-600 py-5 rounded-2xl font-bold text-xl active:scale-95 transition-transform">START TEST</button>
+              <button onClick={() => {if (!audioContextRef.current) audioContextRef.current = new AudioContext(); runTrial(currentStep);}} className="w-full bg-blue-600 py-5 rounded-2xl font-bold">START</button>
             </div>
           </div>
         );
       }
 
       if (phase === 'complete') {
-        const csvText = 'Trial,Offset_ms,Response,RT_ms,FPS,Timestamp\n' + results.map(r => `${r.trial},${r.offset},${r.response},${r.reactionTime},${r.fps},${r.timestamp}`).join('\n');
-        const uniqueOffsets = [0, 8.333, 16.667, 25.0, 33.333, 41.667, 50.0, 66.667, 83.333, 100.0];
-        
+        // Average the last 10 trials to find the threshold
+        const lastTen = results.slice(-10);
+        const threshold = (lastTen.reduce((acc, r) => acc + parseFloat(r.offset), 0) / 10).toFixed(2);
         return (
-          <div className="min-h-[100dvh] bg-gray-900 text-white p-6 flex flex-col items-center overflow-auto">
-            <h1 className="text-2xl font-bold mb-6">Results Summary</h1>
-            <div className="w-full max-w-md bg-gray-800 p-4 rounded-xl mb-6 space-y-3 shadow-2xl">
-              {uniqueOffsets.map(val => {
-                const matches = results.filter(r => Math.abs(Math.abs(parseFloat(r.offset)) - val) < 1);
-                const sameCount = matches.filter(r => r.response === 'Same').length;
-                const pct = matches.length ? Math.round((sameCount / matches.length) * 100) : 0;
-                return (
-                  <div key={val} className="flex items-center gap-2 text-xs">
-                    <div className="w-12 font-mono text-gray-400">{val.toFixed(1)}ms</div>
-                    <div className="flex-1 bg-gray-700 h-5 rounded-full overflow-hidden">
-                      <div className="bg-blue-500 h-full transition-all" style={{width:`${pct}%`}}/>
-                    </div>
-                    <div className="w-12 text-right font-bold">{pct}%</div>
-                  </div>
-                );
-              })}
+          <div className="min-h-[100dvh] bg-gray-900 text-white p-6 flex flex-col items-center">
+            <h1 className="text-2xl font-bold mb-4">Threshold: {threshold}ms</h1>
+            <div className="w-full max-w-md h-64 flex items-end gap-1 bg-black p-2 rounded-xl">
+              {results.map((r, i) => (
+                <div key={i} className={`flex-1 ${r.isCorrect ? 'bg-green-500' : 'bg-red-500'}`} style={{height: `${(parseFloat(r.offset)/100)*100}%`}}></div>
+              ))}
             </div>
-            <button onClick={() => {
-                const blob = new Blob([csvText], { type: 'text/csv' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `sync-results.csv`;
-                a.click();
-                URL.revokeObjectURL(url);
-            }} className="w-full max-w-md bg-blue-600 py-4 rounded-xl font-bold mb-4 shadow-lg active:bg-blue-700">Download CSV</button>
-            <textarea readOnly value={csvText} className="w-full max-w-md h-32 bg-black p-4 font-mono text-[10px] rounded-xl border border-gray-800"/>
+            <button onClick={() => window.location.reload()} className="mt-8 bg-blue-600 px-8 py-3 rounded-xl">RESTART</button>
           </div>
         );
       }
 
-      const yellowColor = `rgb(${yellowR}, ${yellowG}, ${yellowB})`;
-      const blobSize = "min(44vw, 280px)"; 
-
       return (
-        <div className="flex flex-col justify-between items-center h-[100dvh] w-full touch-none select-none p-6" style={{ backgroundColor: yellowColor }}>
-          <div className="pt-10 font-bold text-black/30 tracking-widest text-sm uppercase">
-             {currentTrial === -1 ? "Practice" : `Trial ${currentTrial+1}/${trials.length}`}
+        <div className="flex flex-col justify-between items-center h-[100dvh] w-full p-6" style={{ backgroundColor: `rgb(${yellowVal},${yellowVal},0)` }}>
+          <div className="pt-10 font-bold text-black/20 uppercase">Trial {trialCount + 1} / {MAX_TRIALS}</div>
+          <div className="flex-1 flex items-center justify-center gap-4 w-full">
+              <div ref={leftEmojiRef} className="rounded-full w-[42vw] h-[42vw] max-w-[280px]"></div>
+              <div ref={rightEmojiRef} className="rounded-full w-[42vw] h-[42vw] max-w-[280px]"></div>
           </div>
-
-          <div className="flex-1 flex flex-row items-center justify-center gap-2 w-full">
-              <div ref={leftEmojiRef} className="rounded-full shrink-0" 
-                   style={{ width: blobSize, height: blobSize, background: getPulseStyle(0) }}></div>
-              <div ref={rightEmojiRef} className="rounded-full shrink-0" 
-                   style={{ width: blobSize, height: blobSize, background: getPulseStyle(0) }}></div>
-          </div>
-
-          <div className="pb-8 mb-[env(safe-area-inset-bottom)] flex flex-row gap-3 w-full max-w-md mx-auto">
-            {['Left', 'Same', 'Right'].map(lbl => (
-              <button key={lbl} onPointerDown={() => handleResponse(lbl)} 
-                className="flex-1 bg-black text-white font-black py-8 rounded-2xl shadow-2xl active:opacity-80">
+          <div className="pb-8 mb-[env(safe-area-inset-bottom)] flex gap-3 w-full max-w-md">
+            {['Left', 'Right'].map(lbl => (
+              <button key={lbl} onPointerDown={() => handleResponse(lbl)} className="flex-1 bg-black text-white font-black py-12 rounded-2xl shadow-2xl">
                 {lbl.toUpperCase()}
               </button>
             ))}
