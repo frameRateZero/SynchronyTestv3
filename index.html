@@ -291,7 +291,7 @@ const { useState, useEffect, useRef } = React;
                   ))}
                 </div>
               </div>
-              <button onClick={startTest} className="w-full bg-blue-600 py-5 rounded-2xl font-bold text-xl active:scale-95 transition-transform">START TEST</button>
+              <button onClick={startTest} className="w-full bg-blue-600 py-5 rounded-2xl font-bold text-xl">START TEST</button>
             </div>
           </div>
         );
@@ -325,7 +325,7 @@ const { useState, useEffect, useRef } = React;
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `sync-results.csv`;
+                a.download = `sync-data.csv`;
                 a.click();
                 URL.revokeObjectURL(url);
             }} className="w-full max-w-md bg-blue-600 py-4 rounded-xl font-bold mb-4 shadow-lg">Download CSV</button>
@@ -339,10 +339,12 @@ const { useState, useEffect, useRef } = React;
 
       return (
         <div className="flex flex-col justify-between items-center h-[100dvh] w-full touch-none select-none p-6" style={{ backgroundColor: yellowColor }}>
+          {/* Top Label */}
           <div className="pt-10 font-bold text-black/30 tracking-widest text-sm uppercase">
              {currentTrial === -1 ? "Practice" : `Trial ${currentTrial+1}/${trials.length}`}
           </div>
 
+          {/* Centered Stimuli - No more containers! */}
           <div className="flex-1 flex flex-row items-center justify-center gap-2 w-full">
               <div ref={leftEmojiRef} className="rounded-full shrink-0" 
                    style={{ width: blobSize, height: blobSize, backgroundColor: yellowColor, filter: 'blur(22px)', transform: 'translateZ(0)' }}></div>
@@ -350,10 +352,11 @@ const { useState, useEffect, useRef } = React;
                    style={{ width: blobSize, height: blobSize, backgroundColor: yellowColor, filter: 'blur(22px)', transform: 'translateZ(0)' }}></div>
           </div>
 
+          {/* Safe-Area Aware Bottom Buttons */}
           <div className="pb-8 mb-[env(safe-area-inset-bottom)] flex flex-row gap-3 w-full max-w-md mx-auto">
             {['Left', 'Same', 'Right'].map(lbl => (
               <button key={lbl} onPointerDown={() => handleResponse(lbl)} 
-                className="flex-1 bg-black text-white font-black py-8 rounded-2xl shadow-2xl">
+                className="flex-1 bg-black text-white font-black py-8 rounded-2xl shadow-2xl active:opacity-90">
                 {lbl.toUpperCase()}
               </button>
             ))}
