@@ -235,7 +235,6 @@ const { useState, useEffect, useRef } = React;
       };
 
       const handleResponse = (response) => {
-        // We only register if we are in the response phase
         if (hasRespondedRef.current || phase !== 'response') return;
         hasRespondedRef.current = true;
         playHaptic();
@@ -269,13 +268,12 @@ const { useState, useEffect, useRef } = React;
 
       if (phase === 'intro') {
         const yellowColor = `rgb(${yellowR}, ${yellowG}, ${yellowB})`;
-        const blueColor = `rgb(${blueR}, ${blueG}, ${blueB})`;
         return (
           <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white p-6">
             <div className="max-w-2xl w-full text-center">
               <h1 className="text-3xl font-bold mb-6">Synchrony Test</h1>
               <div className="bg-gray-800 p-6 rounded-2xl mb-6 space-y-4">
-                <div className="text-xs text-gray-400 mb-1">Background RGB</div>
+                <div className="text-xs text-gray-400">Background RGB / Pulse RGB</div>
                 <div className="grid grid-cols-3 gap-2">
                   {[yellowR,yellowG,yellowB].map((v,i) => (
                     <input key={i} type="number" value={v} onChange={e => {
@@ -284,7 +282,6 @@ const { useState, useEffect, useRef } = React;
                     }} className="bg-gray-700 p-3 rounded-lg text-center" />
                   ))}
                 </div>
-                <div className="text-xs text-gray-400 mb-1">Pulse RGB</div>
                 <div className="grid grid-cols-3 gap-2">
                   {[blueR,blueG,blueB].map((v,i) => (
                     <input key={i} type="number" value={v} onChange={e => {
@@ -306,7 +303,7 @@ const { useState, useEffect, useRef } = React;
         
         return (
           <div className="min-h-screen bg-gray-900 text-white p-6 flex flex-col items-center">
-            <h1 className="text-2xl font-bold mb-6 text-center">Summary</h1>
+            <h1 className="text-2xl font-bold mb-6">Results</h1>
             <div className="w-full max-w-md bg-gray-800 p-4 rounded-xl mb-6 space-y-3">
               {uniqueOffsets.map(val => {
                 const matches = results.filter(r => Math.abs(Math.abs(parseFloat(r.offset)) - val) < 1);
@@ -342,12 +339,14 @@ const { useState, useEffect, useRef } = React;
       const innerSize = "min(40vw, 280px)";
 
       return (
-        <div className="flex flex-col justify-between items-center min-h-screen touch-none select-none pb-12 pt-12" style={{ backgroundColor: yellowColor }}>
-          <div className="font-bold text-black/30 tracking-widest text-sm uppercase">
+        <div className="relative min-h-screen touch-none select-none overflow-hidden" style={{ backgroundColor: yellowColor }}>
+          {/* Header */}
+          <div className="absolute top-12 left-0 right-0 text-center font-bold text-black/30 tracking-widest text-sm uppercase">
              {currentTrial === -1 ? "Practice" : `Trial ${currentTrial+1}/${trials.length}`}
           </div>
 
-          <div className="flex flex-row items-center justify-center gap-1 w-full px-1">
+          {/* Stimuli Centered */}
+          <div className="absolute inset-0 flex flex-row items-center justify-center gap-1 px-1">
             <div className="flex items-center justify-center" style={{ width: blobSize, height: blobSize }}>
               <div ref={leftEmojiRef} className="rounded-full" style={{ width: innerSize, height: innerSize, backgroundColor: yellowColor, filter: 'blur(18px)', transform: 'translateZ(0)' }}></div>
             </div>
@@ -356,11 +355,11 @@ const { useState, useEffect, useRef } = React;
             </div>
           </div>
 
-          {/* Buttons stay permanently visible and static per request */}
-          <div className="flex flex-row gap-3 px-4 w-full max-w-md">
+          {/* Buttons Fixed to Bottom */}
+          <div className="absolute bottom-[40px] left-0 right-0 flex flex-row gap-3 px-4 w-full max-w-md mx-auto">
             {['Left', 'Same', 'Right'].map(lbl => (
               <button key={lbl} onPointerDown={() => handleResponse(lbl)} 
-                className="flex-1 bg-black text-white font-black py-8 rounded-2xl shadow-xl transition-none">
+                className="flex-1 bg-black text-white font-black py-8 rounded-2xl shadow-xl active:bg-zinc-900 transition-colors">
                 {lbl.toUpperCase()}
               </button>
             ))}
