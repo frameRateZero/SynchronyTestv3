@@ -150,7 +150,10 @@
         FRAME_MS * 5,   // 5 frames delay (41.667ms) - left first
         -FRAME_MS * 5,  // 5 frames delay (41.667ms) - right first
         FRAME_MS * 6,   // 6 frames delay (50.000ms) - left first
-        -FRAME_MS * 6   // 6 frames delay (50.000ms) - right first
+        -FRAME_MS * 6, // 6 frames delay (50.000ms) - right first
+        FRAME_MS * 8,  -FRAME_MS * 8,  // ~66ms
+        FRAME_MS * 10, -FRAME_MS * 10, // ~83ms
+        FRAME_MS * 12, -FRAME_MS * 12  // ~100ms
       ];
 
       useEffect(() => {
@@ -497,7 +500,7 @@
         });
         const csvText = csvDetails.join('\n');
 
-        const uniqueOffsets = [0, 8.333, 16.667, 25.0, 33.333, 41.667, 50.0];
+        const uniqueOffsets = [0, 8.333, 16.667, 25.0, 33.333, 41.667, 50.0, 66.667, 83.333, 100.0 ];
         const summaryData = uniqueOffsets.map(absOffset => {
           const offsetResults = results.filter(r => Math.abs(Math.abs(r.offset) - absOffset) < 0.01);
           const sameCount = offsetResults.filter(r => r.response === 'Same').length;
@@ -605,14 +608,15 @@
             )}
           </div>
 
-          <div className="flex gap-8 items-center justify-center mb-12" style={{ height: '200px' }}>
-            <div className="w-40 h-40 flex items-center justify-center rounded-full" style={{ backgroundColor: yellowColor, willChange: 'transform' }}>
-              <div ref={leftEmojiRef} className="w-36 h-36 rounded-full" style={{ backgroundColor: yellowColor, filter: 'blur(20px)', willChange: 'background-color', transform: 'translateZ(0)' }}></div>
-            </div>
-            <div className="w-40 h-40 flex items-center justify-center rounded-full" style={{ backgroundColor: yellowColor, willChange: 'transform' }}>
-              <div ref={rightEmojiRef} className="w-36 h-36 rounded-full" style={{ backgroundColor: yellowColor, filter: 'blur(20px)', willChange: 'background-color', transform: 'translateZ(0)' }}></div>
-            </div>
-          </div>
+// Change w-40 h-40 to w-64 h-64 and w-36 h-36 to w-56 h-56
+<div className="flex gap-8 items-center justify-center mb-12" style={{ height: '300px' }}>
+  <div className="w-64 h-64 flex items-center justify-center rounded-full" style={{ backgroundColor: yellowColor, willChange: 'transform' }}>
+    <div ref={leftEmojiRef} className="w-56 h-56 rounded-full" style={{ backgroundColor: yellowColor, filter: 'blur(30px)', ... }}></div>
+  </div>
+  <div className="w-64 h-64 flex items-center justify-center rounded-full" style={{ backgroundColor: yellowColor, willChange: 'transform' }}>
+    <div ref={rightEmojiRef} className="w-56 h-56 rounded-full" style={{ backgroundColor: yellowColor, filter: 'blur(30px)', ... }}></div>
+  </div>
+</div>
 
           <div className="h-20 mb-4 flex items-center justify-center">
             <div className="flex flex-row gap-3 px-4">
